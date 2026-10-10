@@ -1,0 +1,11 @@
+curvey-brouter
+Fork of BRouter (https://github.com/abrensch/brouter) maintained for the Curvey app.
+
+This product includes software developed by the BRouter contributors,
+Copyright (c) 2019 BRouter contributors, licensed under the MIT License
+(see LICENSE in this repository).
+
+Fork base: abrensch/brouter commit 29898106b555e342ff3ade7ae3e9c1ae6644a43b.
+
+Changes from upstream (Curvey modifications):
+- brouter-core: added OsmTrack.CURVEY_FORK_MARKER (verifies fork changes reach Curvey).
