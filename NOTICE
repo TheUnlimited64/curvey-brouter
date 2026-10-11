@@ -17,3 +17,6 @@ Changes from upstream (Curvey modifications):
   "no track found ... (without a U-turn at <via>)" and does not feed the island detection (#200).
 - brouter-core: new request key `arrivedfrom=lon,lat` (`RoutingContext.arrivedFromLon/Lat`). With
   `continueStraight`, the first leg may not retrace that position. For callers that route leg by leg (#200).
+- brouter-core: an unreachable waypoint (target/start island) now raises `UnreachableWaypointException`
+  carrying the waypoint index; `RoutingEngine.getUnreachableWaypointIndex()` exposes it (-1 otherwise).
+  The error message text is unchanged (#201).
