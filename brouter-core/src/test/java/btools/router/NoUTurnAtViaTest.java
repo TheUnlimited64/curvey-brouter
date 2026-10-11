@@ -34,6 +34,10 @@ public class NoUTurnAtViaTest {
   }
 
   private RoutingEngine route(double[][] latLon, boolean continueStraight) {
+    return route(latLon, continueStraight, null);
+  }
+
+  private RoutingEngine route(double[][] latLon, boolean continueStraight, int[] arrivedFromLonLat) {
     List<OsmNodeNamed> wplist = new ArrayList<>();
     for (int i = 0; i < latLon.length; i++) {
       OsmNodeNamed n = new OsmNodeNamed();
@@ -45,6 +49,10 @@ public class NoUTurnAtViaTest {
     RoutingContext rctx = new RoutingContext();
     rctx.keyValues = new HashMap<>();
     if (continueStraight) rctx.keyValues.put("continueStraight", "1");
+    if (arrivedFromLonLat != null) {
+      rctx.arrivedFromLon = arrivedFromLonLat[0];
+      rctx.arrivedFromLat = arrivedFromLonLat[1];
+    }
     rctx.localFunction = workingDir.getAbsolutePath() + "/../../../../misc/profiles2/trekking.brf";
     RoutingEngine re = new RoutingEngine(null, null,
       new File(workingDir, "/../../../../brouter-map-creator/build/resources/test/tmp/segments"), wplist, rctx);
@@ -87,5 +95,33 @@ public class NoUTurnAtViaTest {
     // no profile variable: unchanged upstream behaviour (route found, reversal allowed)
     RoutingEngine re = route(REVERSING_LOOPS[0], false);
     Assert.assertNotNull(re.getFoundTrack());
+  }
+
+  @Test
+  public void arrivedFromGuardsTheFirstLeg() {
+    double[][] pair = {{49.997500, 8.723700}, {50.002409, 8.721041}};
+    OsmTrack free = route(pair, true).getFoundTrack();
+    OsmPathElement start = free.nodes.get(0);
+    OsmPathElement firstStep = null;
+    for (OsmPathElement e : free.nodes) {
+      if (btools.util.CheapRuler.distance(e.getILon(), e.getILat(), start.getILon(), start.getILat()) > 3) {
+        firstStep = e;
+        break;
+      }
+    }
+    Assert.assertNotNull(firstStep);
+
+    // pretend the rider just arrived from where this route would go first
+    RoutingEngine guarded = route(pair, true, new int[]{firstStep.getILon(), firstStep.getILat()});
+    if (guarded.getErrorMessage() == null) {
+      for (OsmPathElement e : guarded.getFoundTrack().nodes) {
+        Assert.assertFalse("first step must not retrace the arrival edge",
+          e.getILon() == firstStep.getILon() && e.getILat() == firstStep.getILat()
+            && guarded.getFoundTrack().nodes.indexOf(e) < 3);
+      }
+    }
+    // without the continueStraight rule the hint is ignored
+    RoutingEngine ignored = route(pair, false, new int[]{firstStep.getILon(), firstStep.getILat()});
+    Assert.assertNull(ignored.getErrorMessage());
   }
 }

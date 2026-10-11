@@ -80,6 +80,14 @@ public final class RoutingContext {
   public boolean continueStraight;
 
   /**
+   * Position (micro-degrees, BRouter offsets) the caller arrived from before the first waypoint, for
+   * callers that route leg by leg. With {@link #continueStraight} the first leg may not retrace it.
+   * Request key {@code arrivedfrom=lon,lat}.
+   */
+  public Integer arrivedFromLon;
+  public Integer arrivedFromLat;
+
+  /**
    * Hard no-U-turn guard for the start of a leg ({@link #continueStraight}).
    * While active, a path leaving the leg's start waypoint (xLon/xLat) must not take its first
    * step to the position the previous leg arrived from (pLon/pLat), i.e. must not retrace the

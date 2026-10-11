@@ -192,7 +192,13 @@ public class RoutingParamCollector {
         String value = e.getValue();
         if (DEBUG) System.out.println("params " + key + " " + value);
 
-        if (key.equals("straight")) {
+        if (key.equals("arrivedfrom")) {
+          String[] ll = value.split(",");
+          if (ll.length == 2) {
+            rctx.arrivedFromLon = 180000000 + (int) (Double.parseDouble(ll[0]) * 1000000 + 0.5);
+            rctx.arrivedFromLat = 90000000 + (int) (Double.parseDouble(ll[1]) * 1000000 + 0.5);
+          }
+        } else if (key.equals("straight")) {
           try {
             String[] sa = value.split(",");
             for (int i = 0; i < sa.length; i++) {

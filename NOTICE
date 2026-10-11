@@ -15,3 +15,5 @@ Changes from upstream (Curvey modifications):
   5 m no-go circle, which missed arrivals from farther away and stayed active for all later legs.
   A leg that cannot continue without turning around fails with
   "no track found ... (without a U-turn at <via>)" and does not feed the island detection (#200).
+- brouter-core: new request key `arrivedfrom=lon,lat` (`RoutingContext.arrivedFromLon/Lat`). With
+  `continueStraight`, the first leg may not retrace that position. For callers that route leg by leg (#200).

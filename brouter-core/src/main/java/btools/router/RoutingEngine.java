@@ -1045,7 +1045,7 @@ public class RoutingEngine extends Thread {
         routingContext.inverseDirection = false;
         wptIndex = i + 1;
       } else {
-        setReverseGuard(totaltrack, matchedWaypoints.get(i));
+        setReverseGuard(totaltrack, matchedWaypoints.get(i)); // i == 0: only arrivedfrom
         try {
           seg = searchTrack(matchedWaypoints.get(i), matchedWaypoints.get(i + 1), i == matchedWaypoints.size() - 2 ? nearbyTrack : null, refTracks[i]);
         } finally {
@@ -1100,16 +1100,23 @@ public class RoutingEngine extends Thread {
    */
   private void setReverseGuard(OsmTrack prev, MatchedWaypoint wp) {
     routingContext.reverseGuardActive = false;
-    if (!routingContext.continueStraight || routingContext.allowSamewayback || prev.nodes.size() < 2) {
+    if (!routingContext.continueStraight || routingContext.allowSamewayback) {
       return;
     }
     if (wp.wpttype == MatchedWaypoint.WAYPOINT_TYPE_DIRECT || wp.wpttype == MatchedWaypoint.WAYPOINT_TYPE_MEETING) {
       return; // beeline and explicit visit points may turn around
     }
-    int xLon = wp.crosspoint.ilon;
-    int xLat = wp.crosspoint.ilat;
-    routingContext.reverseGuardXLon = xLon;
-    routingContext.reverseGuardXLat = xLat;
+    routingContext.reverseGuardXLon = wp.crosspoint.ilon;
+    routingContext.reverseGuardXLat = wp.crosspoint.ilat;
+    if (prev.nodes.size() < 2) {
+      // first leg: only a caller-supplied arrival position (arrivedfrom) can be guarded
+      if (routingContext.arrivedFromLon != null && !routingContext.isAtReverseGuardWaypoint(routingContext.arrivedFromLon, routingContext.arrivedFromLat)) {
+        routingContext.reverseGuardPLon = routingContext.arrivedFromLon;
+        routingContext.reverseGuardPLat = routingContext.arrivedFromLat;
+        routingContext.reverseGuardActive = true;
+      }
+      return;
+    }
     // the position the previous leg came from: last track node that is not the via point itself
     for (int k = prev.nodes.size() - 1; k >= 0; k--) {
       OsmPathElement e = prev.nodes.get(k);
