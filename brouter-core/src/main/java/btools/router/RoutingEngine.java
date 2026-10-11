@@ -65,6 +65,7 @@ public class RoutingEngine extends Thread {
 
   protected String outputMessage = null;
   protected String errorMessage = null;
+  private int unreachableWaypointIndex = -1;
 
   private volatile boolean terminated;
 
@@ -841,6 +842,9 @@ public class RoutingEngine extends Thread {
 
   private void logException(Throwable t) {
     errorMessage = t instanceof RuntimeException ? t.getMessage() : t.toString();
+    if (t instanceof UnreachableWaypointException) {
+      unreachableWaypointIndex = ((UnreachableWaypointException) t).getWaypointIndex();
+    }
     logInfo("Error (linksProcessed=" + linksProcessed + " open paths: " + openSet.getSize() + "): " + errorMessage);
   }
 
@@ -1001,12 +1005,12 @@ public class RoutingEngine extends Thread {
         if (routingContext.inverseRouting) {
           OsmTrack seg = findTrack("start-island-check", matchedWaypoints.get(i), matchedWaypoints.get(i + 1), null, null, false);
           if (seg == null && nodeLimit > 0) {
-            throw new IllegalArgumentException("start island detected for section " + i);
+            throw new UnreachableWaypointException(i, "start island detected for section " + i);
           }
         } else {
           OsmTrack seg = findTrack("target-island-check", matchedWaypoints.get(i + 1), matchedWaypoints.get(i), null, null, false);
           if (seg == null && nodeLimit > 0) {
-            throw new IllegalArgumentException("target island detected for section " + i);
+            throw new UnreachableWaypointException(i + 1, "target island detected for section " + i);
           }
         }
       }
@@ -2504,6 +2508,14 @@ public class RoutingEngine extends Thread {
 
   public OsmTrack getFoundRawTrack() {
     return foundRawTrack;
+  }
+
+  /**
+   * Index of the waypoint that cannot be reached (disconnected island), or -1 when the run did not
+   * fail for that reason.
+   */
+  public int getUnreachableWaypointIndex() {
+    return unreachableWaypointIndex;
   }
 
   public String getErrorMessage() {
