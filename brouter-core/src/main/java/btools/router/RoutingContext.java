@@ -78,6 +78,27 @@ public final class RoutingContext {
   public boolean correctMisplacedViaPoints;
   public double correctMisplacedViaPointsDistance;
   public boolean continueStraight;
+
+  /**
+   * Hard no-U-turn guard for the start of a leg ({@link #continueStraight}).
+   * While active, a path leaving the leg's start waypoint (xLon/xLat) must not take its first
+   * step to the position the previous leg arrived from (pLon/pLat), i.e. must not retrace the
+   * arrival edge. Positions closer than {@link #REVERSE_GUARD_VIA_TOLERANCE_M} to the waypoint count as
+   * the waypoint itself (the matched crosspoint and the track's own node differ by rounding).
+   * Set by the engine per leg; evaluated in {@link OsmPath}.
+   */
+  static final int REVERSE_GUARD_VIA_TOLERANCE_M = 2;
+
+  boolean isAtReverseGuardWaypoint(int ilon, int ilat) {
+    // not calcDistance(): that one has side effects (waypoint matching, nogo costs)
+    return CheapRuler.distance(ilon, ilat, reverseGuardXLon, reverseGuardXLat) <= REVERSE_GUARD_VIA_TOLERANCE_M;
+  }
+
+  boolean reverseGuardActive;
+  int reverseGuardXLon;
+  int reverseGuardXLat;
+  int reverseGuardPLon;
+  int reverseGuardPLat;
   public boolean useDynamicDistance;
   public boolean buildBeelineOnRange;
 

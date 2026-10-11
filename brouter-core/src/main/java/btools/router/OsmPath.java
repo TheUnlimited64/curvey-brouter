@@ -193,6 +193,11 @@ abstract class OsmPath implements OsmLinkHolder {
     setBit(IS_ON_DESTINATION_BIT, newDestination);
 
 
+    // no-U-turn guard (continueStraight): the zero-length start path of a leg that began exactly on
+    // a junction continues from there, so its first step must be checked as well
+    boolean reverseGuardPending = rc.reverseGuardActive && origin.treedepth == 1
+      && rc.isAtReverseGuardWaypoint(sourceNode.getILon(), sourceNode.getILat());
+
     OsmTransferNode transferNode = link.geometry == null ? null
       : rc.geometryDecoder.decodeGeometry(link.geometry, sourceNode, targetNode, isReverse);
 
@@ -259,12 +264,25 @@ abstract class OsmPath implements OsmLinkHolder {
             }
           }
 
+          // the path starts at the waypoint: its first step is subject to the no-U-turn guard
+          reverseGuardPending = rc.reverseGuardActive;
+
           if (rc.checkPendingEndpoint()) {
             dist = rc.calcDistance(rc.ilonshortest, rc.ilatshortest, lon2, lat2);
             if (rc.shortestmatch) {
               stopAtEndpoint = true;
               ele2 = interpolateEle(ele1, ele2, rc.wayfraction);
             }
+          }
+        }
+      }
+
+      if (reverseGuardPending) {
+        if (!rc.isAtReverseGuardWaypoint(lon2, lat2)) { // first real step away from the waypoint
+          reverseGuardPending = false;
+          if (lon2 == rc.reverseGuardPLon && lat2 == rc.reverseGuardPLat) {
+            cost = -1; // would retrace the arrival edge = U-turn
+            return;
           }
         }
       }

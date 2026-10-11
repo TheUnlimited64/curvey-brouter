@@ -1045,20 +1045,13 @@ public class RoutingEngine extends Thread {
         routingContext.inverseDirection = false;
         wptIndex = i + 1;
       } else {
-        seg = searchTrack(matchedWaypoints.get(i), matchedWaypoints.get(i + 1), i == matchedWaypoints.size() - 2 ? nearbyTrack : null, refTracks[i]);
-        wptIndex = i;
-        if (routingContext.continueStraight) {
-          if (i < matchedWaypoints.size() - 2) {
-            OsmNode lastPoint = seg.containsNode(matchedWaypoints.get(i+1).node1) ? matchedWaypoints.get(i+1).node1 : matchedWaypoints.get(i+1).node2;
-            OsmNodeNamed nogo = new OsmNodeNamed(lastPoint);
-            nogo.radius = 5;
-            nogo.name = "nogo" + (i+1);
-            nogo.nogoWeight = 9999.;
-            nogo.isNogo = true;
-            if (routingContext.nogopoints == null) routingContext.nogopoints = new ArrayList<>();
-            routingContext.nogopoints.add(nogo);
-          }
+        setReverseGuard(totaltrack, matchedWaypoints.get(i));
+        try {
+          seg = searchTrack(matchedWaypoints.get(i), matchedWaypoints.get(i + 1), i == matchedWaypoints.size() - 2 ? nearbyTrack : null, refTracks[i]);
+        } finally {
+          routingContext.reverseGuardActive = false;
         }
+        wptIndex = i;
       }
       if (seg == null)
         return null;
@@ -1095,6 +1088,38 @@ public class RoutingEngine extends Thread {
       totaltrack.pois = routingContext.poipoints;
 
     return totaltrack;
+  }
+
+  /**
+   * Hard no-U-turn rule at via points ({@code continueStraight}): the leg starting at {@code wp}
+   * must not take its first step back along the edge the previous leg arrived on.
+   * Replaces the former 5 m no-go circle around the via point, which was not exact (it missed
+   * arrivals whose last junction lay farther away) and stayed active for all following legs.
+   *
+   * @param prev the track routed so far (empty before the first leg)
+   */
+  private void setReverseGuard(OsmTrack prev, MatchedWaypoint wp) {
+    routingContext.reverseGuardActive = false;
+    if (!routingContext.continueStraight || routingContext.allowSamewayback || prev.nodes.size() < 2) {
+      return;
+    }
+    if (wp.wpttype == MatchedWaypoint.WAYPOINT_TYPE_DIRECT || wp.wpttype == MatchedWaypoint.WAYPOINT_TYPE_MEETING) {
+      return; // beeline and explicit visit points may turn around
+    }
+    int xLon = wp.crosspoint.ilon;
+    int xLat = wp.crosspoint.ilat;
+    routingContext.reverseGuardXLon = xLon;
+    routingContext.reverseGuardXLat = xLat;
+    // the position the previous leg came from: last track node that is not the via point itself
+    for (int k = prev.nodes.size() - 1; k >= 0; k--) {
+      OsmPathElement e = prev.nodes.get(k);
+      if (!routingContext.isAtReverseGuardWaypoint(e.getILon(), e.getILat())) {
+        routingContext.reverseGuardPLon = e.getILon();
+        routingContext.reverseGuardPLat = e.getILat();
+        routingContext.reverseGuardActive = true;
+        return;
+      }
+    }
   }
 
   OsmTrack getExtraSegment(OsmPathElement start, OsmPathElement end) {
@@ -1814,7 +1839,8 @@ public class RoutingEngine extends Thread {
         if (t != null) {
           track = t;
         } else {
-          throw new IllegalArgumentException("no track found at pass=" + cfi);
+          throw new IllegalArgumentException("no track found at pass=" + cfi
+            + (routingContext.reverseGuardActive ? " (without a U-turn at " + startWp.name + ")" : ""));
         }
       }
     }
@@ -2299,7 +2325,9 @@ public class RoutingEngine extends Thread {
       }
     }
 
-    if (nodesVisited < MAXNODES_ISLAND_CHECK && islandNodePairs.getFreezeCount() < 5) {
+    // with the no-U-turn guard active, an exhausted search means "no way without turning around",
+    // not "island": freezing its node pairs would corrupt waypoint matching for the following legs
+    if (!routingContext.reverseGuardActive && nodesVisited < MAXNODES_ISLAND_CHECK && islandNodePairs.getFreezeCount() < 5) {
       throw new RoutingIslandException();
     }
 
