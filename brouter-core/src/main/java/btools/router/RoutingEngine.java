@@ -2512,7 +2512,8 @@ public class RoutingEngine extends Thread {
 
   /**
    * Index of the waypoint that cannot be reached (disconnected island), or -1 when the run did not
-   * fail for that reason.
+   * fail for that reason. The index refers to the engine's matched waypoints, which equal the
+   * waypoints it was given unless beeline/dynamic-distance matching inserts extra ones.
    */
   public int getUnreachableWaypointIndex() {
     return unreachableWaypointIndex;
