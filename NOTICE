@@ -9,3 +9,11 @@ Fork base: abrensch/brouter commit 29898106b555e342ff3ade7ae3e9c1ae6644a43b.
 
 Changes from upstream (Curvey modifications):
 - brouter-core: added OsmTrack.CURVEY_FORK_MARKER (verifies fork changes reach Curvey).
+- brouter-core: `continueStraight` is now an exact hard no-U-turn rule at via points. The leg that
+  starts at a via point may not take its first step back along the edge the previous leg arrived on
+  (`RoutingEngine.setReverseGuard`, `OsmPath`, `RoutingContext.reverseGuard*`). It replaces the former
+  5 m no-go circle, which missed arrivals from farther away and stayed active for all later legs.
+  A leg that cannot continue without turning around fails with
+  "no track found ... (without a U-turn at <via>)" and does not feed the island detection (#200).
+- brouter-core: new request key `arrivedfrom=lon,lat` (`RoutingContext.arrivedFromLon/Lat`). With
+  `continueStraight`, the first leg may not retrace that position. For callers that route leg by leg (#200).

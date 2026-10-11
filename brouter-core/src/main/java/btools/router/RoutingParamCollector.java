@@ -192,7 +192,14 @@ public class RoutingParamCollector {
         String value = e.getValue();
         if (DEBUG) System.out.println("params " + key + " " + value);
 
-        if (key.equals("straight")) {
+        if (key.equals("arrivedfrom")) {
+          String[] ll = value.split(",");
+          if (ll.length == 2) {
+            // same offset-then-round as waypoints: rounding before the offset is off by one west/south of 0
+            rctx.arrivedFromLon = (int) ((Double.parseDouble(ll[0]) + 180.) * 1000000. + 0.5);
+            rctx.arrivedFromLat = (int) ((Double.parseDouble(ll[1]) + 90.) * 1000000. + 0.5);
+          }
+        } else if (key.equals("straight")) {
           try {
             String[] sa = value.split(",");
             for (int i = 0; i < sa.length; i++) {

@@ -69,4 +69,20 @@ public class RouteParamTest {
     Assert.assertEquals("result content timode ", 3, rc.turnInstructionMode);
   }
 
+  @Test
+  public void arrivedFromMatchesWaypointEncodingOnEverySideOfZero() {
+    RoutingParamCollector rpc = new RoutingParamCollector();
+    String[] lonlats = {"-8.123456,-33.654321", "8.123456,49.654321", "-0.000001,0.000001"};
+    for (String lonlat : lonlats) {
+      Map<String, String> params = new HashMap<>();
+      params.put("arrivedfrom", lonlat);
+      RoutingContext rc = new RoutingContext();
+      rpc.setParams(rc, null, params);
+      OsmNodeNamed wp = rpc.getWayPointList(lonlat + ";0,0").get(0);
+
+      // the guard compares engine node positions with ==, so this must be the exact waypoint encoding
+      Assert.assertEquals("lon " + lonlat, wp.ilon, (int) rc.arrivedFromLon);
+      Assert.assertEquals("lat " + lonlat, wp.ilat, (int) rc.arrivedFromLat);
+    }
+  }
 }
