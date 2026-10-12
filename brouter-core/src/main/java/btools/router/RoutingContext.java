@@ -89,6 +89,36 @@ public final class RoutingContext {
   public List<OsmNode> arrivedFrom;
 
   /**
+   * Positions (BRouter micro-degree offsets) the vehicle actually drove before the first waypoint, oldest
+   * first: e.g. the last few hundred metres of GPS fixes, snapped to the old route where it was on it.
+   * With {@link #continueStraight} and no {@link #arrivedFrom}, the engine matches them to roads and the
+   * first leg may not start back along the road section it arrived on. Unlike {@link #arrivedFrom} (a
+   * planned leg join), a start with no way forward turns around: the vehicle is already there.
+   * Request key {@code drivenpath=lon,lat|lon,lat|...}.
+   */
+  public List<OsmNode> drivenPath;
+
+  /** Only the last this many {@link #drivenPath} positions are used (the arrival is what matters). */
+  static final int DRIVEN_PATH_MAX_POSITIONS = 12;
+
+  /**
+   * Every driven position must lie within this distance of the matched road path (GPS error plus road
+   * width); otherwise the vehicle came another way than the engine's path, which is not trusted.
+   */
+  static final double DRIVEN_PATH_CORRIDOR_M = 30.;
+
+  /**
+   * The matched road path may be at most this factor times the length of the driven polyline (plus
+   * {@link #DRIVEN_PATH_DETOUR_SLACK_M}): a longer one went round something the vehicle did not, for
+   * example a block to reach the start from its other side. Such a match is not trusted.
+   */
+  static final double DRIVEN_PATH_DETOUR_FACTOR = 1.5;
+  static final double DRIVEN_PATH_DETOUR_SLACK_M = 50.;
+
+  /** Node budget for the driven-path search (a few hundred metres of road). */
+  static final int DRIVEN_PATH_MAX_NODES = 5000;
+
+  /**
    * Hard no-U-turn guard for the start of a leg ({@link #continueStraight}).
    * While active, a path leaving the leg's start waypoint (xLon/xLat) must not take its first
    * step to the position the previous leg arrived from (pLon/pLat), i.e. must not retrace the

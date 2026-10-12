@@ -18,6 +18,13 @@ Changes from upstream (Curvey modifications):
 - brouter-core: new request key `arrivedfrom=lon,lat[|lon,lat...]` (`RoutingContext.arrivedFrom`, oldest
   first). With `continueStraight`, the first leg may not retrace the last listed position that is clear of
   the start (more than 2 m, engine metric). For callers that route leg by leg (#200; list form #204).
+- brouter-core: new request key `drivenpath=lon,lat|...` (`RoutingContext.drivenPath`, oldest first): the
+  positions a vehicle actually drove before the first waypoint (a reroute). With `continueStraight` and no
+  `arrivedfrom`, the engine matches them to roads (one search from the oldest position to the start,
+  re-tracked in detail) and guards the first leg with the exact rule above. The match is trusted only if
+  every position lies within 30 m of it and it is at most 1.5x the driven length (+50 m). If the guarded
+  first leg has no way forward, it is rerun without the guard: the vehicle turns around instead of getting
+  no route. A planned via (`arrivedfrom`) still fails there (#204).
 - brouter-core: a leg counts as blocked by the no-U-turn guard only when the guard rejected a step
   (`RoutingContext.reverseGuardHit`); only then is island handling skipped and
   `ReverseGuardBlockedException` (message unchanged) raised. An armed guard that never fired no longer

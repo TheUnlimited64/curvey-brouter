@@ -194,17 +194,9 @@ public class RoutingParamCollector {
         if (DEBUG) System.out.println("params " + key + " " + value);
 
         if (key.equals("arrivedfrom")) {
-          List<OsmNode> positions = new ArrayList<>();
-          for (String lonlat : value.split("\\|")) {
-            String[] ll = lonlat.split(",");
-            if (ll.length == 2) {
-              // same offset-then-round as waypoints: rounding before the offset is off by one west/south of 0
-              positions.add(new OsmNode(
-                (int) ((Double.parseDouble(ll[0]) + 180.) * 1000000. + 0.5),
-                (int) ((Double.parseDouble(ll[1]) + 90.) * 1000000. + 0.5)));
-            }
-          }
-          if (!positions.isEmpty()) rctx.arrivedFrom = positions;
+          rctx.arrivedFrom = readPositionList(value);
+        } else if (key.equals("drivenpath")) {
+          rctx.drivenPath = readPositionList(value);
         } else if (key.equals("straight")) {
           try {
             String[] sa = value.split(",");
@@ -334,6 +326,24 @@ public class RoutingParamCollector {
     }
 
     return poisList;
+  }
+
+  /**
+   * Reads {@code lon,lat|lon,lat|...} into engine positions, in order; malformed entries are skipped.
+   * Returns null when nothing is left.
+   */
+  static List<OsmNode> readPositionList(String value) {
+    List<OsmNode> positions = new ArrayList<>();
+    for (String lonlat : value.split("\\|")) {
+      String[] ll = lonlat.split(",");
+      if (ll.length == 2) {
+        // same offset-then-round as waypoints: rounding before the offset is off by one west/south of 0
+        positions.add(new OsmNode(
+          (int) ((Double.parseDouble(ll[0]) + 180.) * 1000000. + 0.5),
+          (int) ((Double.parseDouble(ll[1]) + 90.) * 1000000. + 0.5)));
+      }
+    }
+    return positions.isEmpty() ? null : positions;
   }
 
   public List<OsmNodeNamed> readNogoList(String nogos) {
