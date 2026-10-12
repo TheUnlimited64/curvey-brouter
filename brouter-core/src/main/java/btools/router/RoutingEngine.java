@@ -1131,8 +1131,27 @@ public class RoutingEngine extends Thread {
     List<OsmNode> recent = new ArrayList<>(path.subList(Math.max(0, path.size() - RoutingContext.DRIVEN_PATH_MAX_POSITIONS), path.size()));
     // positions at the start itself say nothing about the arrival
     recent.removeIf(p -> start.crosspoint.calcDistance(p) <= RoutingContext.REVERSE_GUARD_VIA_TOLERANCE_M);
-    if (recent.isEmpty()) return null;
+    if (recent.size() < RoutingContext.DRIVEN_PATH_MIN_POSITIONS) return null;
+    while (!recent.isEmpty()) {
+      OsmTrack track = matchDrivenPositions(start, recent);
+      if (track == null) {
+        // The oldest position may snap onto a link whose way to the start leads round a block (a junction, the
+        // other carriageway), or be a GPS outlier. The newer positions can still name the arrival road.
+        if (recent.size() <= RoutingContext.DRIVEN_PATH_MIN_POSITIONS) return null;
+        recent = new ArrayList<>(recent.subList(1, recent.size()));
+        continue;
+      }
+      int turn = turnaroundIndex(recent, track);
+      if (turn < 0) return track;
+      // the vehicle turned around (a closure, a missed turn): only the part after the turn is its arrival
+      logInfo("driven path turns around, matching it from the turn on");
+      recent = new ArrayList<>(recent.subList(turn + 1, recent.size()));
+    }
+    return null;
+  }
 
+  /** Matches the driven positions {@code recent} (oldest first) to the road ending at {@code start}; null if implausible. */
+  private OsmTrack matchDrivenPositions(MatchedWaypoint start, List<OsmNode> recent) {
     OsmNodeNamed origin = new OsmNodeNamed(recent.get(0));
     origin.name = "driven";
     MatchedWaypoint from = new MatchedWaypoint();
@@ -1189,6 +1208,57 @@ public class RoutingEngine extends Thread {
       nodeLimit = savedNodeLimit;
       guideTrack = savedGuideTrack;
     }
+  }
+
+  /**
+   * Index of the position where the driven path turns around along {@code track}, or -1 if it only moves
+   * forward. A turn is the position furthest along the track, if a later position lies more than
+   * {@link RoutingContext#DRIVEN_PATH_BACKTRACK_M} back from it or it lies that far beyond the track's end
+   * (the vehicle passed the start and came back).
+   */
+  private static int turnaroundIndex(List<OsmNode> recent, OsmTrack track) {
+    double total = alongTrack(track.nodes.get(track.nodes.size() - 1).getILon(), track.nodes.get(track.nodes.size() - 1).getILat(), track);
+    int furthest = 0;
+    double furthestAlong = Double.NEGATIVE_INFINITY;
+    boolean turned = false;
+    for (int i = 0; i < recent.size(); i++) {
+      double along = alongTrack(recent.get(i).ilon, recent.get(i).ilat, track);
+      if (along > furthestAlong) {
+        furthestAlong = along;
+        furthest = i;
+      } else if (along < furthestAlong - RoutingContext.DRIVEN_PATH_BACKTRACK_M) {
+        turned = true;
+      }
+    }
+    return turned || furthestAlong > total + RoutingContext.DRIVEN_PATH_BACKTRACK_M ? furthest : -1;
+  }
+
+  /**
+   * Distance (m) along {@code track} to the projection of the position nearest to it; past the last node the
+   * projection continues straight on, so a position beyond the track's end lies further than its length.
+   */
+  private static double alongTrack(int ilon, int ilat, OsmTrack track) {
+    double[] k = CheapRuler.getLonLatToMeterScales(ilat);
+    double best = Double.MAX_VALUE, bestAlong = 0, along = 0;
+    int last = track.nodes.size() - 1;
+    for (int i = 1; i <= last; i++) {
+      OsmPathElement a = track.nodes.get(i - 1);
+      OsmPathElement b = track.nodes.get(i);
+      double ax = (a.getILon() - ilon) * k[0], ay = (a.getILat() - ilat) * k[1];
+      double dx = (b.getILon() - a.getILon()) * k[0], dy = (b.getILat() - a.getILat()) * k[1];
+      double len2 = dx * dx + dy * dy;
+      double len = Math.sqrt(len2);
+      double t = len2 == 0 ? 0 : Math.max(0, -(ax * dx + ay * dy) / len2);
+      if (i < last) t = Math.min(1, t);
+      double x = ax + t * dx, y = ay + t * dy;
+      double d = Math.sqrt(x * x + y * y);
+      if (d < best) {
+        best = d;
+        bestAlong = along + t * len;
+      }
+      along += len;
+    }
+    return bestAlong;
   }
 
   /** Distance (m) from {@code p} to the nearest segment of {@code track}, flat-earth scaled like CheapRuler. */

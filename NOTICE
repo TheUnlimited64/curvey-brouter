@@ -22,7 +22,9 @@ Changes from upstream (Curvey modifications):
   positions a vehicle actually drove before the first waypoint (a reroute). With `continueStraight` and no
   `arrivedfrom`, the engine matches them to roads (one search from the oldest position to the start,
   re-tracked in detail) and guards the first leg with the exact rule above. The match is trusted only if
-  every position lies within 30 m of it and it is at most 1.5x the driven length (+50 m). If the guarded
+  every position lies within 30 m of it and it is at most 1.5x the driven length (+50 m); if it is not, the
+  oldest positions are dropped one at a time (down to 2) and it is retried. If the path turns around on the
+  matched road, only the part after the turn counts. Fewer than 2 positions arm no guard. If the guarded
   first leg has no way forward, it is rerun without the guard: the vehicle turns around instead of getting
   no route. A planned via (`arrivedfrom`) still fails there (#204).
 - brouter-core: a leg counts as blocked by the no-U-turn guard only when the guard rejected a step

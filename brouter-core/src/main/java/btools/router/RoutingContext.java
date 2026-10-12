@@ -115,6 +115,19 @@ public final class RoutingContext {
   static final double DRIVEN_PATH_DETOUR_FACTOR = 1.5;
   static final double DRIVEN_PATH_DETOUR_SLACK_M = 50.;
 
+  /**
+   * A driven path needs at least this many positions (after dropping those at the start): a single GPS point
+   * cannot tell the road from a neighbouring one, so no guard is armed. When the whole path does not match
+   * plausibly, the oldest positions are dropped one at a time and the match is retried, down to this many.
+   */
+  static final int DRIVEN_PATH_MIN_POSITIONS = 2;
+
+  /**
+   * A driven position this far back along the matched road from an earlier one (more than GPS noise) means
+   * the vehicle turned around; only the part after the turn is used.
+   */
+  static final double DRIVEN_PATH_BACKTRACK_M = 10.;
+
   /** Node budget for the driven-path search (a few hundred metres of road). */
   static final int DRIVEN_PATH_MAX_NODES = 5000;
 
