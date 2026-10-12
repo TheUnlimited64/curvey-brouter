@@ -1115,10 +1115,15 @@ public class RoutingEngine extends Thread {
     routingContext.reverseGuardXLat = wp.crosspoint.ilat;
     if (prev.nodes.size() < 2) {
       // first leg: only a caller-supplied arrival position (arrivedfrom) can be guarded
-      if (routingContext.arrivedFromLon != null && !routingContext.isAtReverseGuardWaypoint(routingContext.arrivedFromLon, routingContext.arrivedFromLat)) {
-        routingContext.reverseGuardPLon = routingContext.arrivedFromLon;
-        routingContext.reverseGuardPLat = routingContext.arrivedFromLat;
-        routingContext.reverseGuardActive = true;
+      List<OsmNode> arrived = routingContext.arrivedFrom;
+      for (int k = arrived == null ? -1 : arrived.size() - 1; k >= 0; k--) {
+        OsmNode p = arrived.get(k);
+        if (!routingContext.isAtReverseGuardWaypoint(p.ilon, p.ilat)) {
+          routingContext.reverseGuardPLon = p.ilon;
+          routingContext.reverseGuardPLat = p.ilat;
+          routingContext.reverseGuardActive = true;
+          break;
+        }
       }
       return;
     }

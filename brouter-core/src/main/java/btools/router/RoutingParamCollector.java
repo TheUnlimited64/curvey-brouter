@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.StringTokenizer;
 
 import btools.mapaccess.MatchedWaypoint;
+import btools.mapaccess.OsmNode;
 
 public class RoutingParamCollector {
 
@@ -193,12 +194,17 @@ public class RoutingParamCollector {
         if (DEBUG) System.out.println("params " + key + " " + value);
 
         if (key.equals("arrivedfrom")) {
-          String[] ll = value.split(",");
-          if (ll.length == 2) {
-            // same offset-then-round as waypoints: rounding before the offset is off by one west/south of 0
-            rctx.arrivedFromLon = (int) ((Double.parseDouble(ll[0]) + 180.) * 1000000. + 0.5);
-            rctx.arrivedFromLat = (int) ((Double.parseDouble(ll[1]) + 90.) * 1000000. + 0.5);
+          List<OsmNode> positions = new ArrayList<>();
+          for (String lonlat : value.split("\\|")) {
+            String[] ll = lonlat.split(",");
+            if (ll.length == 2) {
+              // same offset-then-round as waypoints: rounding before the offset is off by one west/south of 0
+              positions.add(new OsmNode(
+                (int) ((Double.parseDouble(ll[0]) + 180.) * 1000000. + 0.5),
+                (int) ((Double.parseDouble(ll[1]) + 90.) * 1000000. + 0.5)));
+            }
           }
+          if (!positions.isEmpty()) rctx.arrivedFrom = positions;
         } else if (key.equals("straight")) {
           try {
             String[] sa = value.split(",");

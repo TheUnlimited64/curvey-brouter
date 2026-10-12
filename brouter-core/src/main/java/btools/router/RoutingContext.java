@@ -80,12 +80,13 @@ public final class RoutingContext {
   public boolean continueStraight;
 
   /**
-   * Position (micro-degrees, BRouter offsets) the caller arrived from before the first waypoint, for
-   * callers that route leg by leg. With {@link #continueStraight} the first leg may not retrace it.
-   * Request key {@code arrivedfrom=lon,lat}.
+   * Positions (BRouter micro-degree offsets) the caller passed before the first waypoint, oldest first,
+   * for callers that route leg by leg: typically the tail of the previous leg's track. With
+   * {@link #continueStraight} the first leg may not retrace the last of them that is clear of the start
+   * (more than {@link #REVERSE_GUARD_VIA_TOLERANCE_M}); the engine picks it with its own metric.
+   * Request key {@code arrivedfrom=lon,lat|lon,lat|...}.
    */
-  public Integer arrivedFromLon;
-  public Integer arrivedFromLat;
+  public List<OsmNode> arrivedFrom;
 
   /**
    * Hard no-U-turn guard for the start of a leg ({@link #continueStraight}).

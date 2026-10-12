@@ -61,8 +61,7 @@ public class ReverseGuardIslandTest {
     rctx.keyValues.put("continueStraight", "1");
     if (guardArmed) {
       // a position that is no neighbour of the start: the guard is armed but can never reject a step
-      rctx.arrivedFromLon = 180000000 + 8730000;
-      rctx.arrivedFromLat = 90000000 + 50010000;
+      rctx.arrivedFrom = java.util.Collections.singletonList(new btools.mapaccess.OsmNode(180000000 + 8730000, 90000000 + 50010000));
     }
     List<OsmNodeNamed> nogos = new RoutingParamCollector().readNogoList(ring());
     RoutingContext.prepareNogoPoints(nogos);

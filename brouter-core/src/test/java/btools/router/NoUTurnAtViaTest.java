@@ -50,8 +50,11 @@ public class NoUTurnAtViaTest {
     rctx.keyValues = new HashMap<>();
     if (continueStraight) rctx.keyValues.put("continueStraight", "1");
     if (arrivedFromLonLat != null) {
-      rctx.arrivedFromLon = arrivedFromLonLat[0];
-      rctx.arrivedFromLat = arrivedFromLonLat[1];
+      // one or more lon,lat pairs, oldest first
+      rctx.arrivedFrom = new ArrayList<>();
+      for (int k = 0; k + 1 < arrivedFromLonLat.length; k += 2) {
+        rctx.arrivedFrom.add(new btools.mapaccess.OsmNode(arrivedFromLonLat[k], arrivedFromLonLat[k + 1]));
+      }
     }
     rctx.localFunction = workingDir.getAbsolutePath() + "/../../../../misc/profiles2/trekking.brf";
     RoutingEngine re = new RoutingEngine(null, null,
@@ -123,5 +126,48 @@ public class NoUTurnAtViaTest {
     // without the continueStraight rule the hint is ignored
     RoutingEngine ignored = route(pair, false, new int[]{firstStep.getILon(), firstStep.getILat()});
     Assert.assertNull(ignored.getErrorMessage());
+  }
+
+  /** The free track's first node more than 2 m from its start: the engine's own first step. */
+  private static OsmPathElement engineFirstStep(OsmTrack t) {
+    OsmPathElement s = t.nodes.get(0);
+    for (OsmPathElement e : t.nodes) {
+      if (btools.util.CheapRuler.distance(e.getILon(), e.getILat(), s.getILon(), s.getILat()) > 2) return e;
+    }
+    return null;
+  }
+
+  @Test
+  public void arrivedFromListPicksTheLastPositionClearOfTheStart() {
+    double[][] pair = {{49.997500, 8.723700}, {50.002409, 8.721041}};
+    OsmTrack free = route(pair, true).getFoundTrack();
+    OsmPathElement start = free.nodes.get(0);
+    OsmPathElement step = engineFirstStep(free);
+    OsmPathElement older = free.nodes.get(free.nodes.indexOf(step) + 1);
+    // 1 m from the start: inside the engine's tolerance, so it must be skipped, not used
+    int[] near = btools.util.CheapRuler.destination(start.getILon(), start.getILat(), 1., 90.);
+
+    RoutingEngine single = route(pair, true, new int[]{step.getILon(), step.getILat()});
+    RoutingEngine list = route(pair, true, new int[]{
+      older.getILon(), older.getILat(), step.getILon(), step.getILat(), near[0], near[1]});
+
+    Assert.assertEquals(single.getErrorMessage(), list.getErrorMessage());
+    if (single.getFoundTrack() != null) {
+      Assert.assertEquals(single.getFoundTrack().nodes.size(), list.getFoundTrack().nodes.size());
+      Assert.assertEquals(single.getFoundTrack().distance, list.getFoundTrack().distance);
+    }
+  }
+
+  @Test
+  public void arrivedFromListWithEveryPositionAtTheStartArmsNoGuard() {
+    double[][] pair = {{49.997500, 8.723700}, {50.002409, 8.721041}};
+    OsmTrack free = route(pair, true).getFoundTrack();
+    OsmPathElement start = free.nodes.get(0);
+    int[] near = btools.util.CheapRuler.destination(start.getILon(), start.getILat(), 1., 90.);
+
+    RoutingEngine guarded = route(pair, true, new int[]{start.getILon(), start.getILat(), near[0], near[1]});
+
+    Assert.assertNull(guarded.getErrorMessage());
+    Assert.assertEquals(free.distance, guarded.getFoundTrack().distance);
   }
 }
