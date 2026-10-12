@@ -107,6 +107,11 @@ public final class RoutingContext {
   int reverseGuardXLat;
   int reverseGuardPLon;
   int reverseGuardPLat;
+  /**
+   * Set when the guard rejected a step in the current leg. Only then is an exhausted search "no way
+   * without a U-turn"; otherwise it is an ordinary failure and island handling applies.
+   */
+  boolean reverseGuardHit;
   public boolean useDynamicDistance;
   public boolean buildBeelineOnRange;
 

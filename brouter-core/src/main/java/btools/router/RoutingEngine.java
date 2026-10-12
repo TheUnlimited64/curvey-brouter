@@ -1104,6 +1104,7 @@ public class RoutingEngine extends Thread {
    */
   private void setReverseGuard(OsmTrack prev, MatchedWaypoint wp) {
     routingContext.reverseGuardActive = false;
+    routingContext.reverseGuardHit = false;
     if (!routingContext.continueStraight || routingContext.allowSamewayback) {
       return;
     }
@@ -1850,8 +1851,10 @@ public class RoutingEngine extends Thread {
         if (t != null) {
           track = t;
         } else {
-          throw new IllegalArgumentException("no track found at pass=" + cfi
-            + (routingContext.reverseGuardActive ? " (without a U-turn at " + startWp.name + ")" : ""));
+          if (routingContext.reverseGuardActive && routingContext.reverseGuardHit) {
+            throw new ReverseGuardBlockedException("no track found at pass=" + cfi + " (without a U-turn at " + startWp.name + ")");
+          }
+          throw new IllegalArgumentException("no track found at pass=" + cfi);
         }
       }
     }
@@ -2336,9 +2339,10 @@ public class RoutingEngine extends Thread {
       }
     }
 
-    // with the no-U-turn guard active, an exhausted search means "no way without turning around",
-    // not "island": freezing its node pairs would corrupt waypoint matching for the following legs
-    if (!routingContext.reverseGuardActive && nodesVisited < MAXNODES_ISLAND_CHECK && islandNodePairs.getFreezeCount() < 5) {
+    // when the no-U-turn guard rejected a step, an exhausted search means "no way without turning around",
+    // not "island": freezing its node pairs would corrupt waypoint matching for the following legs.
+    // A guard that never fired changed nothing, so island handling applies as usual.
+    if (!(routingContext.reverseGuardActive && routingContext.reverseGuardHit) && nodesVisited < MAXNODES_ISLAND_CHECK && islandNodePairs.getFreezeCount() < 5) {
       throw new RoutingIslandException();
     }
 
