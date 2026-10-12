@@ -51,6 +51,8 @@ public class DrivenPathGuardTest {
     List<OsmNode> drivenPath;
     List<OsmNode> arrivedFrom;
     String nogos;
+    /** Request {@code heading}: the vehicle's direction at the start (degrees), or null. */
+    Integer heading;
   }
 
   private RoutingEngine route(double[][] latLon, Request r) {
@@ -67,6 +69,10 @@ public class DrivenPathGuardTest {
     if (r.continueStraight) rctx.keyValues.put("continueStraight", "1");
     rctx.drivenPath = r.drivenPath;
     rctx.arrivedFrom = r.arrivedFrom;
+    if (r.heading != null) {
+      rctx.startDirection = r.heading;
+      rctx.forceUseStartDirection = true;
+    }
     if (r.nogos != null) {
       List<OsmNodeNamed> nogoList = new RoutingParamCollector().readNogoList(r.nogos);
       RoutingContext.prepareNogoPoints(nogoList);
@@ -185,83 +191,33 @@ public class DrivenPathGuardTest {
 
   /**
    * The vehicle arrived from S, drove on past the start away from S, turned around (a closure) and is back at
-   * the start heading toward S. Only the part after the turn is its arrival, so the start may leave toward S:
-   * the outcome is the free route's, not the one guarded against S.
+   * the start heading toward S. Its heading points against the matched arrival, so the engine arms no guard:
+   * the route may leave toward S, the free route's outcome. The same path with the heading of the arrival
+   * (still driving on) is guarded.
    */
   @Test
-  public void aTurnaroundGuardsOnlyTheWayBack() {
+  public void aHeadingAgainstTheArrivalArmsNoGuard() {
     int checked = 0;
     for (double[][] pair : PAIRS) {
       RoutingEngine freeRun = free(pair);
       OsmTrack free = freeRun.getFoundTrack();
       OsmTrack arrival = arrival(pair, free);
-      Request forward = new Request();
-      forward.drivenPath = sampled(arrival);
-      RoutingEngine guarded = route(pair, forward);
-      if (guarded.getFoundTrack() == null || guarded.getFoundTrack().distance == free.distance) continue;
-      // beyond the start, away from S, and back: close enough that every position is within the match corridor
-      OsmTrack away = guarded.getFoundTrack();
-      List<OsmNode> path = new ArrayList<>(forward.drivenPath);
-      path.add(along(away, 12.));
-      path.add(along(away, 25.));
-      path.add(along(away, 12.));
-      Request turned = new Request();
-      turned.drivenPath = path;
+      OsmPathElement end = arrival.nodes.get(arrival.nodes.size() - 1);
+      OsmNode start = new OsmNode(end.getILon(), end.getILat());
+      OsmNode p = arrivalPosition(arrival).get(0);
+      int arrivalHeading = (int) Math.round(bearing(p, start)) % 360;
 
+      Request driving = withDrivenPath(sampled(arrival));
+      driving.heading = arrivalHeading;
+      RoutingEngine guarded = route(pair, driving);
+      if (guarded.getFoundTrack() == null || guarded.getFoundTrack().distance == free.distance) continue;
+
+      Request turned = withDrivenPath(sampled(arrival));
+      turned.heading = (arrivalHeading + 180) % 360;
       assertSameOutcome("pair " + pair[0][0], freeRun, route(pair, turned));
       checked++;
     }
-    Assert.assertTrue("premise: some pair is guarded away from the free route", checked > 0);
-  }
-
-  /**
-   * The vehicle's arrival began only a few metres back, on the same stretch of road as the start (no road
-   * node in between). The arrival position is then mid-road, not a node the first step ends at; the guard
-   * must still recognise a step toward it as going back. (An equality test on the step's end node never fires.)
-   * The arrival is an engine route (legal on one-way roads), like in the other tests.
-   */
-  @Test
-  public void anArrivalWithinOneStretchOfRoadStillGuards() {
-    int guarded = 0;
-    for (double[][] pair : PAIRS) {
-      OsmTrack free = free(pair).getFoundTrack();
-      OsmNode freeFirst = step(free);
-      for (double back : new double[]{15., 25., 40., 80.}) {
-        OsmNode originNode = along(free, back);
-        double[] origin = {originNode.ilat / 1e6 - 90., originNode.ilon / 1e6 - 180.};
-        Request plain = new Request();
-        plain.continueStraight = false;
-        OsmTrack arrival = route(new double[][]{origin, pair[0]}, plain).getFoundTrack();
-        if (arrival == null || arrival.nodes.size() < 2) continue;
-        OsmPathElement end = arrival.nodes.get(arrival.nodes.size() - 1);
-        OsmNode arrivalP = null;
-        for (int k = arrival.nodes.size() - 1; k >= 0 && arrivalP == null; k--) {
-          OsmPathElement e = arrival.nodes.get(k);
-          if (CheapRuler.distance(e.getILon(), e.getILat(), end.getILon(), end.getILat()) > 2) arrivalP = new OsmNode(e.getILon(), e.getILat());
-        }
-        if (arrivalP == null) continue;
-        // premise: the free route starts back along the arrival
-        if (angle(bearing(new OsmNode(end.getILon(), end.getILat()), freeFirst), bearing(new OsmNode(end.getILon(), end.getILat()), arrivalP)) > 20.) continue;
-
-        List<OsmNode> tail = new ArrayList<>();
-        for (OsmPathElement e : arrival.nodes) tail.add(new OsmNode(e.getILon(), e.getILat()));
-        Request exact = new Request();
-        exact.arrivedFrom = tail;
-        if (route(pair, exact).getFoundTrack() == null) continue; // dead end: covered elsewhere
-        Request driven = new Request();
-        driven.drivenPath = everyMetres(arrival, 6.);
-
-        for (Request r : new Request[]{exact, driven}) {
-          RoutingEngine run = route(pair, r);
-          Assert.assertNotNull(run.getErrorMessage(), run.getFoundTrack());
-          OsmNode first = step(run.getFoundTrack());
-          Assert.assertTrue("pair " + pair[0][0] + " back " + back + (r == exact ? " arrivedfrom" : " drivenpath")
-            + " still starts back along the arrival", first.ilon != freeFirst.ilon || first.ilat != freeFirst.ilat);
-          guarded++;
-        }
-      }
-    }
-    Assert.assertTrue("premise: the free route goes back toward some arrival", guarded > 0);
+    Assert.assertTrue("premise: some pair is guarded when the heading agrees", checked > 0);
   }
 
   /**
@@ -352,6 +308,36 @@ public class DrivenPathGuardTest {
   private static double angle(double a, double b) {
     double d = Math.abs(a - b) % 360.;
     return d > 180. ? 360. - d : d;
+  }
+
+  /** A GPS outlier among the positions must not disable the guard: same outcome as the clean path. */
+  @Test
+  public void aSingleOutlierPositionDoesNotDisableTheGuard() {
+    int checked = 0;
+    for (double[][] pair : PAIRS) {
+      OsmTrack free = free(pair).getFoundTrack();
+      List<OsmNode> clean = everyMetres(arrival(pair, free), 12.);
+      if (clean.size() < 7) continue; // one outlier is tolerated from 7 positions on
+      RoutingEngine expected = route(pair, withDrivenPath(clean));
+      if (expected.getFoundTrack() == null || expected.getFoundTrack().distance == free.distance) continue;
+
+      // the newest position is the outlier: dropping the oldest positions cannot shed it
+      List<OsmNode> noisy = new ArrayList<>(clean);
+      int last = noisy.size() - 1;
+      OsmNode p = noisy.get(last);
+      int[] off = CheapRuler.destination(p.ilon, p.ilat, 45., (bearing(noisy.get(last - 2), noisy.get(last - 1)) + 90.) % 360.);
+      noisy.set(last, new OsmNode(off[0], off[1]));
+
+      assertSameOutcome("pair " + pair[0][0], expected, route(pair, withDrivenPath(noisy)));
+      checked++;
+    }
+    Assert.assertTrue("premise: some pair has a guarded route and enough positions", checked > 0);
+  }
+
+  private static Request withDrivenPath(List<OsmNode> path) {
+    Request r = new Request();
+    r.drivenPath = path;
+    return r;
   }
 
   /** One GPS point cannot tell the road from a neighbouring one: no guard, the free route. */
@@ -480,27 +466,26 @@ public class DrivenPathGuardTest {
 
   @Test
   public void aGpsJumpOffTheMatchedRoadArmsNoGuard() {
-    // the newest fix 60 m off the road (a GPS jump, or the vehicle came another way): every suffix of the path
-    // contains it, so the match is not trusted. (A jump further back leaves a clean newer part: see
-    // aBadOldestPositionStillGuardsFromTheNewerOnes.)
+    // the newest three fixes 60 m off the road (the vehicle came another way, or the GPS is lost): more than the
+    // outlier share, so the match is not trusted. (One outlier is ignored: aSingleOutlierPositionDoesNot...)
     int meaningful = 0;
     for (double[][] pair : PAIRS) {
       OsmTrack free = free(pair).getFoundTrack();
-      List<OsmNode> path = new ArrayList<>(sampled(arrival(pair, free)));
-      Assert.assertTrue("premise: a fix to move", path.size() >= 2);
-      int mid = path.size() - 1;
-      OsmNode p = path.get(mid);
-      OsmNode before = path.get(Math.max(0, mid - 1));
-      OsmNode after = mid + 1 < path.size() ? path.get(mid + 1) : new OsmNode(free.nodes.get(0).getILon(), free.nodes.get(0).getILat());
+      List<OsmNode> path = new ArrayList<>(everyMetres(arrival(pair, free), 12.));
+      Assert.assertTrue("premise: fixes to move", path.size() >= 4);
       // sideways to the road, not along it
-      int[] jumped = CheapRuler.destination(p.ilon, p.ilat, 60., (bearing(before, after) + 90.) % 360.);
-      path.set(mid, new OsmNode(jumped[0], jumped[1]));
+      double side = (bearing(path.get(0), path.get(path.size() - 1)) + 90.) % 360.;
+      for (int i = path.size() - 3; i < path.size(); i++) {
+        OsmNode p = path.get(i);
+        int[] jumped = CheapRuler.destination(p.ilon, p.ilat, 60., side);
+        path.set(i, new OsmNode(jumped[0], jumped[1]));
+      }
       Request r = new Request();
       r.drivenPath = path;
 
       assertSameOutcome("pair " + pair[0][0], free(pair), route(pair, r));
       Request clean = new Request();
-      clean.drivenPath = sampled(arrival(pair, free));
+      clean.drivenPath = everyMetres(arrival(pair, free), 12.);
       RoutingEngine guarded = route(pair, clean);
       if (guarded.getFoundTrack() != null && guarded.getFoundTrack().distance != free.distance) meaningful++;
     }

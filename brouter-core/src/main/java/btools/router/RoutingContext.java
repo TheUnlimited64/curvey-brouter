@@ -123,10 +123,16 @@ public final class RoutingContext {
   static final int DRIVEN_PATH_MIN_POSITIONS = 2;
 
   /**
-   * A driven position this far back along the matched road from an earlier one (more than GPS noise) means
-   * the vehicle turned around; only the part after the turn is used.
+   * The request's heading may differ from the matched arrival direction by at most this much (GPS bearing
+   * error); beyond it the vehicle is not travelling the way its path says (it turned around), so no guard.
    */
-  static final double DRIVEN_PATH_BACKTRACK_M = 10.;
+  static final double DRIVEN_PATH_HEADING_VETO_DEG = 100.;
+
+  /**
+   * Share of the driven positions that may lie outside the corridor (GPS outliers) and are ignored, rounded
+   * down: a short path tolerates none. More than this and the path is another road than the match.
+   */
+  static final double DRIVEN_PATH_OUTLIER_SHARE = 0.15;
 
   /** Node budget for the driven-path search (a few hundred metres of road). */
   static final int DRIVEN_PATH_MAX_NODES = 5000;

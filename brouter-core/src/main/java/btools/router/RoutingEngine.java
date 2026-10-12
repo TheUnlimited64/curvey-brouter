@@ -1141,13 +1141,34 @@ public class RoutingEngine extends Thread {
         recent = new ArrayList<>(recent.subList(1, recent.size()));
         continue;
       }
-      int turn = turnaroundIndex(recent, track);
-      if (turn < 0) return track;
-      // the vehicle turned around (a closure, a missed turn): only the part after the turn is its arrival
-      logInfo("driven path turns around, matching it from the turn on");
-      recent = new ArrayList<>(recent.subList(turn + 1, recent.size()));
+      if (contradictsHeading(start, track)) {
+        // The vehicle is not travelling the way its path says (it turned around, a closure or a missed turn):
+        // the arrival is not the road it came along, so there is nothing to guard against.
+        logInfo("driven path contradicts the heading, no guard");
+        return null;
+      }
+      return track;
     }
     return null;
+  }
+
+  /**
+   * The request's {@code heading} (the vehicle's direction at the start) points against the matched arrival,
+   * by more than {@link RoutingContext#DRIVEN_PATH_HEADING_VETO_DEG}. No heading, no veto.
+   */
+  private boolean contradictsHeading(MatchedWaypoint start, OsmTrack track) {
+    if (!routingContext.forceUseStartDirection || routingContext.startDirection == null) return false;
+    for (int k = track.nodes.size() - 1; k >= 0; k--) {
+      OsmPathElement e = track.nodes.get(k);
+      // not isAtReverseGuardWaypoint(): the guard's waypoint is only set later, in setReverseGuard
+      if (CheapRuler.distance(e.getILon(), e.getILat(), start.crosspoint.ilon, start.crosspoint.ilat) > RoutingContext.REVERSE_GUARD_VIA_TOLERANCE_M) {
+        double[] m = CheapRuler.getLonLatToMeterScales((e.getILat() + start.crosspoint.ilat) >> 1);
+        double arrival = Math.toDegrees(Math.atan2((start.crosspoint.ilon - e.getILon()) * m[0], (start.crosspoint.ilat - e.getILat()) * m[1]));
+        double diff = Math.abs(((arrival - routingContext.startDirection) % 360. + 540.) % 360. - 180.);
+        return diff > RoutingContext.DRIVEN_PATH_HEADING_VETO_DEG;
+      }
+    }
+    return false;
   }
 
   /** Matches the driven positions {@code recent} (oldest first) to the road ending at {@code start}; null if implausible. */
@@ -1182,15 +1203,22 @@ public class RoutingEngine extends Thread {
       guideTrack = null;
       if (track == null || track.nodes.size() < 2) return null;
 
+      // a few positions far off the road are GPS outliers: ignore them; more than that is another road
+      List<OsmNode> outliers = new ArrayList<>();
+      for (OsmNode p : recent) {
+        if (distanceToTrack(p, track) > RoutingContext.DRIVEN_PATH_CORRIDOR_M) outliers.add(p);
+      }
+      if (outliers.size() > (int) (recent.size() * RoutingContext.DRIVEN_PATH_OUTLIER_SHARE)
+        || recent.size() - outliers.size() < RoutingContext.DRIVEN_PATH_MIN_POSITIONS) {
+        logInfo("driven path leaves the matched road, no guard");
+        return null;
+      }
+      recent.removeAll(outliers);
       double drivenM = 0;
       OsmNode prev = recent.get(0);
       for (OsmNode p : recent) {
         drivenM += prev.calcDistance(p);
         prev = p;
-        if (distanceToTrack(p, track) > RoutingContext.DRIVEN_PATH_CORRIDOR_M) {
-          logInfo("driven path leaves the matched road, no guard");
-          return null;
-        }
       }
       drivenM += prev.calcDistance(start.crosspoint);
       if (track.distance > drivenM * RoutingContext.DRIVEN_PATH_DETOUR_FACTOR + RoutingContext.DRIVEN_PATH_DETOUR_SLACK_M) {
@@ -1208,57 +1236,6 @@ public class RoutingEngine extends Thread {
       nodeLimit = savedNodeLimit;
       guideTrack = savedGuideTrack;
     }
-  }
-
-  /**
-   * Index of the position where the driven path turns around along {@code track}, or -1 if it only moves
-   * forward. A turn is the position furthest along the track, if a later position lies more than
-   * {@link RoutingContext#DRIVEN_PATH_BACKTRACK_M} back from it or it lies that far beyond the track's end
-   * (the vehicle passed the start and came back).
-   */
-  private static int turnaroundIndex(List<OsmNode> recent, OsmTrack track) {
-    double total = alongTrack(track.nodes.get(track.nodes.size() - 1).getILon(), track.nodes.get(track.nodes.size() - 1).getILat(), track);
-    int furthest = 0;
-    double furthestAlong = Double.NEGATIVE_INFINITY;
-    boolean turned = false;
-    for (int i = 0; i < recent.size(); i++) {
-      double along = alongTrack(recent.get(i).ilon, recent.get(i).ilat, track);
-      if (along > furthestAlong) {
-        furthestAlong = along;
-        furthest = i;
-      } else if (along < furthestAlong - RoutingContext.DRIVEN_PATH_BACKTRACK_M) {
-        turned = true;
-      }
-    }
-    return turned || furthestAlong > total + RoutingContext.DRIVEN_PATH_BACKTRACK_M ? furthest : -1;
-  }
-
-  /**
-   * Distance (m) along {@code track} to the projection of the position nearest to it; past the last node the
-   * projection continues straight on, so a position beyond the track's end lies further than its length.
-   */
-  private static double alongTrack(int ilon, int ilat, OsmTrack track) {
-    double[] k = CheapRuler.getLonLatToMeterScales(ilat);
-    double best = Double.MAX_VALUE, bestAlong = 0, along = 0;
-    int last = track.nodes.size() - 1;
-    for (int i = 1; i <= last; i++) {
-      OsmPathElement a = track.nodes.get(i - 1);
-      OsmPathElement b = track.nodes.get(i);
-      double ax = (a.getILon() - ilon) * k[0], ay = (a.getILat() - ilat) * k[1];
-      double dx = (b.getILon() - a.getILon()) * k[0], dy = (b.getILat() - a.getILat()) * k[1];
-      double len2 = dx * dx + dy * dy;
-      double len = Math.sqrt(len2);
-      double t = len2 == 0 ? 0 : Math.max(0, -(ax * dx + ay * dy) / len2);
-      if (i < last) t = Math.min(1, t);
-      double x = ax + t * dx, y = ay + t * dy;
-      double d = Math.sqrt(x * x + y * y);
-      if (d < best) {
-        best = d;
-        bestAlong = along + t * len;
-      }
-      along += len;
-    }
-    return bestAlong;
   }
 
   /** Distance (m) from {@code p} to the nearest segment of {@code track}, flat-earth scaled like CheapRuler. */
