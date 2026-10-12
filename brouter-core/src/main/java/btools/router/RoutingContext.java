@@ -146,6 +146,30 @@ public final class RoutingContext {
     return CheapRuler.distance(ilon, ilat, reverseGuardXLon, reverseGuardXLat) <= REVERSE_GUARD_VIA_TOLERANCE_M;
   }
 
+  /**
+   * The first step from the guarded waypoint X toward {@code (ilon, ilat)} retraces the arrival when the
+   * arrival position P lies on that step, within {@link #REVERSE_GUARD_ON_STEP_TOLERANCE_M}. Not "the step ends
+   * at P": when the arrival began on the same stretch of road as X, P is a mid-road position, not the road
+   * node the step ends at, and an equality test would never fire (#204).
+   */
+  boolean isReverseGuardStep(int ilon, int ilat) {
+    double[] k = CheapRuler.getLonLatToMeterScales((reverseGuardXLat + ilat) >> 1);
+    double dx = (ilon - reverseGuardXLon) * k[0];
+    double dy = (ilat - reverseGuardXLat) * k[1];
+    double px = (reverseGuardPLon - reverseGuardXLon) * k[0];
+    double py = (reverseGuardPLat - reverseGuardXLat) * k[1];
+    double len2 = dx * dx + dy * dy;
+    if (len2 == 0) return false;
+    double t = (px * dx + py * dy) / len2;
+    if (t <= 0 || t > 1 + REVERSE_GUARD_ON_STEP_TOLERANCE_M / Math.sqrt(len2)) return false;
+    double ex = px - t * dx;
+    double ey = py - t * dy;
+    return Math.sqrt(ex * ex + ey * ey) <= REVERSE_GUARD_ON_STEP_TOLERANCE_M;
+  }
+
+  /** Rounding of coordinates (about 0.1 m) plus the sideways offset of a projected crosspoint. */
+  static final double REVERSE_GUARD_ON_STEP_TOLERANCE_M = 1.;
+
   boolean reverseGuardActive;
   int reverseGuardXLon;
   int reverseGuardXLat;

@@ -27,6 +27,10 @@ Changes from upstream (Curvey modifications):
   matched road, only the part after the turn counts. Fewer than 2 positions arm no guard. If the guarded
   first leg has no way forward, it is rerun without the guard: the vehicle turns around instead of getting
   no route. A planned via (`arrivedfrom`) still fails there (#204).
+- brouter-core: the no-U-turn guard (`continueStraight`) recognises a first step as going back when the
+  arrival position lies on that step (`RoutingContext.isReverseGuardStep`), not only when the step ends at
+  it. When the arrival began on the same stretch of road as the waypoint, the position is mid-road and the
+  former exact-node comparison never fired, for `arrivedfrom` and `drivenpath` alike (#204).
 - brouter-core: a leg counts as blocked by the no-U-turn guard only when the guard rejected a step
   (`RoutingContext.reverseGuardHit`); only then is island handling skipped and
   `ReverseGuardBlockedException` (message unchanged) raised. An armed guard that never fired no longer

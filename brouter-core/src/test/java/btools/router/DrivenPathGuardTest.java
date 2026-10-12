@@ -214,6 +214,146 @@ public class DrivenPathGuardTest {
     Assert.assertTrue("premise: some pair is guarded away from the free route", checked > 0);
   }
 
+  /**
+   * The vehicle's arrival began only a few metres back, on the same stretch of road as the start (no road
+   * node in between). The arrival position is then mid-road, not a node the first step ends at; the guard
+   * must still recognise a step toward it as going back. (An equality test on the step's end node never fires.)
+   * The arrival is an engine route (legal on one-way roads), like in the other tests.
+   */
+  @Test
+  public void anArrivalWithinOneStretchOfRoadStillGuards() {
+    int guarded = 0;
+    for (double[][] pair : PAIRS) {
+      OsmTrack free = free(pair).getFoundTrack();
+      OsmNode freeFirst = step(free);
+      for (double back : new double[]{15., 25., 40., 80.}) {
+        OsmNode originNode = along(free, back);
+        double[] origin = {originNode.ilat / 1e6 - 90., originNode.ilon / 1e6 - 180.};
+        Request plain = new Request();
+        plain.continueStraight = false;
+        OsmTrack arrival = route(new double[][]{origin, pair[0]}, plain).getFoundTrack();
+        if (arrival == null || arrival.nodes.size() < 2) continue;
+        OsmPathElement end = arrival.nodes.get(arrival.nodes.size() - 1);
+        OsmNode arrivalP = null;
+        for (int k = arrival.nodes.size() - 1; k >= 0 && arrivalP == null; k--) {
+          OsmPathElement e = arrival.nodes.get(k);
+          if (CheapRuler.distance(e.getILon(), e.getILat(), end.getILon(), end.getILat()) > 2) arrivalP = new OsmNode(e.getILon(), e.getILat());
+        }
+        if (arrivalP == null) continue;
+        // premise: the free route starts back along the arrival
+        if (angle(bearing(new OsmNode(end.getILon(), end.getILat()), freeFirst), bearing(new OsmNode(end.getILon(), end.getILat()), arrivalP)) > 20.) continue;
+
+        List<OsmNode> tail = new ArrayList<>();
+        for (OsmPathElement e : arrival.nodes) tail.add(new OsmNode(e.getILon(), e.getILat()));
+        Request exact = new Request();
+        exact.arrivedFrom = tail;
+        if (route(pair, exact).getFoundTrack() == null) continue; // dead end: covered elsewhere
+        Request driven = new Request();
+        driven.drivenPath = everyMetres(arrival, 6.);
+
+        for (Request r : new Request[]{exact, driven}) {
+          RoutingEngine run = route(pair, r);
+          Assert.assertNotNull(run.getErrorMessage(), run.getFoundTrack());
+          OsmNode first = step(run.getFoundTrack());
+          Assert.assertTrue("pair " + pair[0][0] + " back " + back + (r == exact ? " arrivedfrom" : " drivenpath")
+            + " still starts back along the arrival", first.ilon != freeFirst.ilon || first.ilat != freeFirst.ilat);
+          guarded++;
+        }
+      }
+    }
+    Assert.assertTrue("premise: the free route goes back toward some arrival", guarded > 0);
+  }
+
+  /**
+   * Start and arrival origin both in the middle of one long straight segment of the road (no road node between
+   * them and the start), the target behind the arrival. The arrival position is a mid-segment point, never the
+   * node the first step ends at: the guard must still see a step toward it as going back.
+   */
+  @Test
+  public void anArrivalInTheMiddleOfALongSegmentStillGuards() {
+    int guarded = 0;
+    for (double[][] pair : PAIRS) {
+      OsmTrack route = free(pair).getFoundTrack();
+      for (int k = 1; k < route.nodes.size(); k++) {
+        OsmPathElement a = route.nodes.get(k - 1);
+        OsmPathElement b = route.nodes.get(k);
+        if (segment(route, k) < 30.) continue;
+        double[] aLatLon = {a.getILat() / 1e6 - 90., a.getILon() / 1e6 - 180.};
+        double[] x = lerp(a, b, 0.7);
+        double[] origin = lerp(a, b, 0.2);
+        double[][] leg = {x, aLatLon};
+        Request plain = new Request();
+        plain.continueStraight = false;
+        OsmTrack arrival = route(new double[][]{origin, x}, plain).getFoundTrack();
+        OsmTrack back = route(leg, new Request()).getFoundTrack();
+        if (arrival == null || arrival.nodes.size() < 2 || back == null || back.nodes.size() < 2) continue;
+
+        List<OsmNode> tail = new ArrayList<>();
+        for (OsmPathElement e : arrival.nodes) tail.add(new OsmNode(e.getILon(), e.getILat()));
+        Request exact = new Request();
+        exact.arrivedFrom = tail;
+        Request driven = new Request();
+        driven.drivenPath = everyMetres(arrival, 6.);
+        OsmNode freeFirst = step(back);
+        for (Request r : new Request[]{exact, driven}) {
+          RoutingEngine run = route(leg, r);
+          if (run.getFoundTrack() == null) continue; // no way forward (dead end): covered elsewhere
+          OsmNode first = step(run.getFoundTrack());
+          Assert.assertTrue("pair " + pair[0][0] + " segment " + k + (r == exact ? " arrivedfrom" : " drivenpath")
+            + " still starts back along the arrival", first.ilon != freeFirst.ilon || first.ilat != freeFirst.ilat);
+          guarded++;
+        }
+      }
+    }
+    Assert.assertTrue("premise: some long segment lets the free route go back", guarded > 0);
+  }
+
+  /** The point {@code f} of the way from a to b, as {lat, lon}. */
+  private static double[] lerp(OsmPathElement a, OsmPathElement b, double f) {
+    return new double[]{
+      (a.getILat() + f * (b.getILat() - a.getILat())) / 1e6 - 90.,
+      (a.getILon() + f * (b.getILon() - a.getILon())) / 1e6 - 180.};
+  }
+
+  /** Positions every {@code spacing} metres along the track (interpolated, like GPS fixes), oldest first, without the end. */
+  private static List<OsmNode> everyMetres(OsmTrack t, double spacing) {
+    List<OsmNode> out = new ArrayList<>();
+    double total = 0;
+    for (int k = 1; k < t.nodes.size(); k++) total += segment(t, k);
+    for (double at = 0; at < total - 2.; at += spacing) {
+      double left = at;
+      for (int k = 1; k < t.nodes.size(); k++) {
+        double len = segment(t, k);
+        if (left <= len && len > 0) {
+          OsmPathElement a = t.nodes.get(k - 1);
+          OsmPathElement b = t.nodes.get(k);
+          double f = left / len;
+          out.add(new OsmNode(a.getILon() + (int) Math.round(f * (b.getILon() - a.getILon())),
+            a.getILat() + (int) Math.round(f * (b.getILat() - a.getILat()))));
+          break;
+        }
+        left -= len;
+      }
+    }
+    return out;
+  }
+
+  private static double segment(OsmTrack t, int k) {
+    OsmPathElement a = t.nodes.get(k - 1);
+    OsmPathElement b = t.nodes.get(k);
+    return CheapRuler.distance(a.getILon(), a.getILat(), b.getILon(), b.getILat());
+  }
+
+  private static OsmNode step(OsmTrack t) {
+    OsmPathElement e = firstStep(t);
+    return new OsmNode(e.getILon(), e.getILat());
+  }
+
+  private static double angle(double a, double b) {
+    double d = Math.abs(a - b) % 360.;
+    return d > 180. ? 360. - d : d;
+  }
+
   /** One GPS point cannot tell the road from a neighbouring one: no guard, the free route. */
   @Test
   public void aSingleDrivenPositionArmsNoGuard() {

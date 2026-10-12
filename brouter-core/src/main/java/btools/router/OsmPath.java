@@ -280,7 +280,7 @@ abstract class OsmPath implements OsmLinkHolder {
       if (reverseGuardPending) {
         if (!rc.isAtReverseGuardWaypoint(lon2, lat2)) { // first real step away from the waypoint
           reverseGuardPending = false;
-          if (lon2 == rc.reverseGuardPLon && lat2 == rc.reverseGuardPLat) {
+          if (rc.isReverseGuardStep(lon2, lat2)) {
             rc.reverseGuardHit = true;
             cost = -1; // would retrace the arrival edge = U-turn
             return;
