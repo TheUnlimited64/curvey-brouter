@@ -538,6 +538,7 @@ public class DrivenTraceTest {
 
     Assert.assertNotNull(blocked.getErrorMessage());
     Assert.assertTrue(blocked.getErrorMessage(), blocked.getErrorMessage().contains("without a U-turn"));
+    Assert.assertEquals("the blocked waypoint is the start of the request", 0, blocked.getReverseGuardBlockedWaypointIndex());
   }
 
   @Test

@@ -41,6 +41,9 @@ Changes from upstream (Curvey modifications):
   (`RoutingContext.reverseGuardHit`); only then is island handling skipped and
   `ReverseGuardBlockedException` (message unchanged) raised. An armed guard that never fired no longer
   disables island recovery (#204).
+- brouter-core: a planned via the no-U-turn guard cannot leave (a dead end for the profile) raises
+  `ReverseGuardBlockedException` carrying that waypoint's index; `RoutingEngine.getReverseGuardBlockedWaypointIndex()`
+  exposes it (-1 otherwise). The error message text is unchanged (#228).
 - brouter-core: an unreachable waypoint (target/start island) now raises `UnreachableWaypointException`
   carrying the waypoint index; `RoutingEngine.getUnreachableWaypointIndex()` exposes it (-1 otherwise).
   The error message text is unchanged (#201).

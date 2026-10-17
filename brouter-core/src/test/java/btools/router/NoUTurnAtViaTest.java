@@ -153,6 +153,37 @@ public class NoUTurnAtViaTest {
     Assert.assertTrue("premise: some loop comes back along a previous leg without R2", reduced > 0);
   }
 
+  /**
+   * A via the rule cannot leave (a dead end for the car profile) fails with the index of that via, so a caller can
+   * drop or move exactly that waypoint instead of parsing the message (#228).
+   */
+  @Test
+  public void aBlockedViaIsNamedByIndex() {
+    profile = "car-vario";
+    int blocked = 0;
+    for (double[][] loop : REVERSING_LOOPS) {
+      RoutingEngine re = route(loop, true);
+      if (re.getErrorMessage() == null) {
+        Assert.assertEquals("a route found names no blocked waypoint", -1, re.getReverseGuardBlockedWaypointIndex());
+        continue;
+      }
+      Assert.assertTrue(re.getErrorMessage(), re.getErrorMessage().contains("without a U-turn at via"));
+      int named = Integer.parseInt(re.getErrorMessage().replaceAll(".*without a U-turn at via(\\d+)\\).*", "$1"));
+      Assert.assertEquals(re.getErrorMessage(), named, re.getReverseGuardBlockedWaypointIndex());
+      Assert.assertEquals("not an unreachable waypoint", -1, re.getUnreachableWaypointIndex());
+      blocked++;
+    }
+    Assert.assertTrue("premise: some loop has a via the car profile cannot leave without a U-turn", blocked > 0);
+  }
+
+  @Test
+  public void withoutTheRuleNoWaypointIsBlocked() {
+    profile = "car-vario";
+    for (double[][] loop : REVERSING_LOOPS) {
+      Assert.assertEquals(-1, route(loop, false).getReverseGuardBlockedWaypointIndex());
+    }
+  }
+
   @Test
   public void ruleIsOffByDefault() {
     // no profile variable: unchanged upstream behaviour (route found, reversal allowed)
