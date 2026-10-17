@@ -1,0 +1,46 @@
+curvey-brouter
+Fork of BRouter (https://github.com/abrensch/brouter) maintained for the Curvey app.
+
+This product includes software developed by the BRouter contributors,
+Copyright (c) 2019 BRouter contributors, licensed under the MIT License
+(see LICENSE in this repository).
+
+Fork base: abrensch/brouter commit 29898106b555e342ff3ade7ae3e9c1ae6644a43b.
+
+Changes from upstream (Curvey modifications):
+- brouter-core: added OsmTrack.CURVEY_FORK_MARKER (verifies fork changes reach Curvey).
+- brouter-core: `continueStraight` is now an exact hard no-U-turn rule at via points. The leg that
+  starts at a via point may not take its first step back along the edge the previous leg arrived on
+  (`RoutingEngine.setReverseGuard`, `OsmPath`, `RoutingContext.reverseGuard*`). It replaces the former
+  5 m no-go circle, which missed arrivals from farther away and stayed active for all later legs.
+  A leg that cannot continue without turning around fails with
+  "no track found ... (without a U-turn at <via>)" and does not feed the island detection (#200).
+- brouter-core: new request key `arrivedfrom=lon,lat[|lon,lat...]` (`RoutingContext.arrivedFrom`, oldest
+  first). With `continueStraight`, the first leg may not retrace the last listed position that is clear of
+  the start (more than 2 m, engine metric). For callers that route leg by leg (#200; list form #204).
+- brouter-core: new request key `driventrace=lon,lat,sigma|...` (`RoutingContext.drivenTrace`, oldest first,
+  sigma = 1-sigma error in metres): where a vehicle was before the first waypoint (a reroute). With
+  `continueStraight` and no `arrivedfrom`, `DrivenTraceMatcher` reconstructs the road path it drove with a
+  hidden Markov map match (Viterbi over directed link positions; Gaussian emission, road-vs-straight distance
+  transitions, turnarounds, outliers). The start moves onto the matched road when that is clearly more likely,
+  and the first leg is guarded with the exact rule above when the direction is clearly known (no heading or
+  angle is used). If the guarded first leg has no way forward, it is rerun without the guard: the vehicle turns
+  around instead of getting no route. A planned via (`arrivedfrom`) still fails there. Replaces the earlier
+  `drivenpath` key. Links the engine has frozen as islands are no match candidates (#204).
+- brouter-core: rule R2 with `continueStraight`: a route step that runs backwards along the path before its leg
+  (the matched driven trace, `arrivedfrom`, or the route so far at a via; its last 500 m, `DrivenTrace`) costs
+  `reversalCostFactor` times its normal cost (distance cost, or time in the kinematic model; profile variable,
+  default 5, 1 = off). A leg whose search fails with R2 on is searched again without it (`searchLeg`) (#204).
+- brouter-mapaccess: `NodesCache.getSegmentFor` checks the waypoint matcher's type before using its dynamic
+  range, so another `WaypointMatcher` implementation can collect links (#204).
+- brouter-core: the no-U-turn guard (`continueStraight`) recognises a first step as going back when the
+  arrival position lies on that step (`RoutingContext.isReverseGuardStep`), not only when the step ends at
+  it. When the arrival began on the same stretch of road as the waypoint, the position is mid-road and the
+  former exact-node comparison never fired, for `arrivedfrom` and the driven trace alike (#204).
+- brouter-core: a leg counts as blocked by the no-U-turn guard only when the guard rejected a step
+  (`RoutingContext.reverseGuardHit`); only then is island handling skipped and
+  `ReverseGuardBlockedException` (message unchanged) raised. An armed guard that never fired no longer
+  disables island recovery (#204).
+- brouter-core: an unreachable waypoint (target/start island) now raises `UnreachableWaypointException`
+  carrying the waypoint index; `RoutingEngine.getUnreachableWaypointIndex()` exposes it (-1 otherwise).
+  The error message text is unchanged (#201).

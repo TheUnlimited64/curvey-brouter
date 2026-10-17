@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.StringTokenizer;
 
 import btools.mapaccess.MatchedWaypoint;
+import btools.mapaccess.OsmNode;
 
 public class RoutingParamCollector {
 
@@ -192,7 +193,11 @@ public class RoutingParamCollector {
         String value = e.getValue();
         if (DEBUG) System.out.println("params " + key + " " + value);
 
-        if (key.equals("straight")) {
+        if (key.equals("arrivedfrom")) {
+          rctx.arrivedFrom = readPositionList(value);
+        } else if (key.equals("driventrace")) {
+          rctx.drivenTrace = readTraceObservations(value);
+        } else if (key.equals("straight")) {
           try {
             String[] sa = value.split(",");
             for (int i = 0; i < sa.length; i++) {
@@ -321,6 +326,48 @@ public class RoutingParamCollector {
     }
 
     return poisList;
+  }
+
+  /**
+   * Reads {@code lon,lat|lon,lat|...} into engine positions, in order; malformed entries are skipped.
+   * Returns null when nothing is left.
+   */
+  static List<OsmNode> readPositionList(String value) {
+    List<OsmNode> positions = new ArrayList<>();
+    for (String lonlat : value.split("\\|")) {
+      String[] ll = lonlat.split(",");
+      if (ll.length == 2) {
+        // same offset-then-round as waypoints: rounding before the offset is off by one west/south of 0
+        positions.add(new OsmNode(
+          (int) ((Double.parseDouble(ll[0]) + 180.) * 1000000. + 0.5),
+          (int) ((Double.parseDouble(ll[1]) + 90.) * 1000000. + 0.5)));
+      }
+    }
+    return positions.isEmpty() ? null : positions;
+  }
+
+  /**
+   * Reads {@code lon,lat,sigma|lon,lat,sigma|...} (sigma in metres) into trace observations, in order; malformed
+   * entries are skipped. Returns null when nothing is left.
+   */
+  static List<TraceObservation> readTraceObservations(String value) {
+    List<TraceObservation> observations = new ArrayList<>();
+    for (String entry : value.split("\\|")) {
+      String[] f = entry.split(",");
+      if (f.length != 3) continue;
+      try {
+        double sigma = Double.parseDouble(f[2]);
+        if (!(sigma > 0.)) continue; // NaN, zero or negative
+        // same offset-then-round as waypoints
+        observations.add(new TraceObservation(
+          (int) ((Double.parseDouble(f[0]) + 180.) * 1000000. + 0.5),
+          (int) ((Double.parseDouble(f[1]) + 90.) * 1000000. + 0.5),
+          sigma));
+      } catch (NumberFormatException e) {
+        // skipped like any malformed entry
+      }
+    }
+    return observations.isEmpty() ? null : observations;
   }
 
   public List<OsmNodeNamed> readNogoList(String nogos) {

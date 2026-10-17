@@ -47,6 +47,9 @@ public class RoutingEngine extends Thread {
   private int linksProcessed = 0;
 
   private int nodeLimit; // used for target island search
+
+  /** The road path the vehicle drove to the start, matched from {@link RoutingContext#drivenTrace}; null if none. */
+  private DrivenTraceMatcher.Match drivenMatch;
   private int MAXNODES_ISLAND_CHECK = 500;
   private OsmNodePairSet islandNodePairs = new OsmNodePairSet(MAXNODES_ISLAND_CHECK);
   private boolean useNodePoints = false; // use the start/end nodes  instead of crosspoint
@@ -65,6 +68,7 @@ public class RoutingEngine extends Thread {
 
   protected String outputMessage = null;
   protected String errorMessage = null;
+  private int unreachableWaypointIndex = -1;
 
   private volatile boolean terminated;
 
@@ -841,6 +845,9 @@ public class RoutingEngine extends Thread {
 
   private void logException(Throwable t) {
     errorMessage = t instanceof RuntimeException ? t.getMessage() : t.toString();
+    if (t instanceof UnreachableWaypointException) {
+      unreachableWaypointIndex = ((UnreachableWaypointException) t).getWaypointIndex();
+    }
     logInfo("Error (linksProcessed=" + linksProcessed + " open paths: " + openSet.getSize() + "): " + errorMessage);
   }
 
@@ -992,6 +999,9 @@ public class RoutingEngine extends Thread {
 
       routingContext.checkMatchedWaypointAgainstNogos(matchedWaypoints);
 
+      // before the island checks: the start moves onto the road the vehicle drove
+      drivenMatch = matchDrivenTrace(matchedWaypoints.get(0));
+
       // detect target islands: restricted search in inverse direction
       routingContext.inverseDirection = !routingContext.inverseRouting;
       airDistanceCostFactor = 0.;
@@ -1001,12 +1011,12 @@ public class RoutingEngine extends Thread {
         if (routingContext.inverseRouting) {
           OsmTrack seg = findTrack("start-island-check", matchedWaypoints.get(i), matchedWaypoints.get(i + 1), null, null, false);
           if (seg == null && nodeLimit > 0) {
-            throw new IllegalArgumentException("start island detected for section " + i);
+            throw new UnreachableWaypointException(i, "start island detected for section " + i);
           }
         } else {
           OsmTrack seg = findTrack("target-island-check", matchedWaypoints.get(i + 1), matchedWaypoints.get(i), null, null, false);
           if (seg == null && nodeLimit > 0) {
-            throw new IllegalArgumentException("target island detected for section " + i);
+            throw new UnreachableWaypointException(i + 1, "target island detected for section " + i);
           }
         }
       }
@@ -1045,20 +1055,30 @@ public class RoutingEngine extends Thread {
         routingContext.inverseDirection = false;
         wptIndex = i + 1;
       } else {
-        seg = searchTrack(matchedWaypoints.get(i), matchedWaypoints.get(i + 1), i == matchedWaypoints.size() - 2 ? nearbyTrack : null, refTracks[i]);
-        wptIndex = i;
-        if (routingContext.continueStraight) {
-          if (i < matchedWaypoints.size() - 2) {
-            OsmNode lastPoint = seg.containsNode(matchedWaypoints.get(i+1).node1) ? matchedWaypoints.get(i+1).node1 : matchedWaypoints.get(i+1).node2;
-            OsmNodeNamed nogo = new OsmNodeNamed(lastPoint);
-            nogo.radius = 5;
-            nogo.name = "nogo" + (i+1);
-            nogo.nogoWeight = 9999.;
-            nogo.isNogo = true;
-            if (routingContext.nogopoints == null) routingContext.nogopoints = new ArrayList<>();
-            routingContext.nogopoints.add(nogo);
-          }
+        // the first leg is guarded by arrivedfrom (strict) or else by the matched driven trace
+        boolean fromDrivenTrace = i == 0 && routingContext.arrivedFrom == null && drivenMatch != null;
+        if (fromDrivenTrace) {
+          setReverseGuard(drivenMatch, matchedWaypoints.get(i));
+        } else {
+          setReverseGuard(totaltrack, matchedWaypoints.get(i));
         }
+        routingContext.reversalTrace = reversalTrace(i, totaltrack, matchedWaypoints.get(i));
+        OsmTrack nearby = i == matchedWaypoints.size() - 2 ? nearbyTrack : null;
+        try {
+          seg = searchLeg(matchedWaypoints.get(i), matchedWaypoints.get(i + 1), nearby, refTracks[i]);
+        } catch (ReverseGuardBlockedException e) {
+          if (!fromDrivenTrace) throw e; // a planned via on a dead end fails on purpose (#200)
+          // the vehicle is already there and has no way forward (dead end, car park): turning around is the route.
+          // R2 stays: once turned, the route still prefers not to go back further than it must.
+          logInfo("no way forward from the start without a U-turn, allowing it");
+          routingContext.reverseGuardActive = false;
+          startTime = System.currentTimeMillis(); // fresh time budget for the rerun
+          seg = searchLeg(matchedWaypoints.get(i), matchedWaypoints.get(i + 1), nearby, refTracks[i]);
+        } finally {
+          routingContext.reverseGuardActive = false;
+          routingContext.reversalTrace = null;
+        }
+        wptIndex = i;
       }
       if (seg == null)
         return null;
@@ -1095,6 +1115,164 @@ public class RoutingEngine extends Thread {
       totaltrack.pois = routingContext.poipoints;
 
     return totaltrack;
+  }
+
+  /**
+   * Reconstructs the road path the vehicle drove from {@link RoutingContext#drivenTrace} ({@link DrivenTraceMatcher})
+   * and moves {@code start} onto its end: the road and position the path says, not the nearest road. Null (start
+   * unchanged) when there is no trace, the rule is off, or the start cannot be placed on a road.
+   */
+  /**
+   * {@link #searchTrack} for one leg, keeping rule R2 a preference that never makes a leg fail. The reversal cost
+   * changes costs near the leg start, and BRouter's search builds on cost assumptions it can then break (a
+   * cost-cutting merge, link dominance in the detailed re-track: "error re-tracking track" on a route that exists).
+   * If the search fails while R2 is on, the leg is searched again without it. Not after a stop (timeout, kill:
+   * a rerun would only double the wait), and not for an unreachable waypoint or the R1 dead-end signal, which say
+   * something about the request, not about R2.
+   */
+  private OsmTrack searchLeg(MatchedWaypoint from, MatchedWaypoint to, OsmTrack nearby, OsmTrack ref) {
+    try {
+      return searchTrack(from, to, nearby, ref);
+    } catch (ReverseGuardBlockedException | UnreachableWaypointException e) {
+      throw e;
+    } catch (IllegalArgumentException e) {
+      String message = e.getMessage();
+      if (routingContext.reversalTrace == null || terminated || message != null && message.contains(" timeout after ")) {
+        throw e;
+      }
+      logInfo("search failed with the reversal cost (" + message + "), searching without it");
+      routingContext.reversalTrace = null;
+      startTime = System.currentTimeMillis(); // fresh time budget for the rerun
+      return searchTrack(from, to, nearby, ref);
+    }
+  }
+
+  private DrivenTraceMatcher.Match matchDrivenTrace(MatchedWaypoint start) {
+    List<TraceObservation> trace = routingContext.drivenTrace;
+    if (trace == null || !routingContext.continueStraight || routingContext.allowSamewayback
+      || routingContext.inverseRouting || routingContext.arrivedFrom != null
+      || start.wpttype == MatchedWaypoint.WAYPOINT_TYPE_DIRECT || start.wpttype == MatchedWaypoint.WAYPOINT_TYPE_MEETING) {
+      return null;
+    }
+    // caches of its own: the matcher collects links while map cells are decoded, and the engine's cache keeps
+    // cells it has decoded already
+    long maxmem = routingContext.memoryclass * 1024L * 1024L;
+    List<String> log = new ArrayList<>();
+    DrivenTraceMatcher.Match match;
+    try {
+      match = new DrivenTraceMatcher(routingContext,
+        () -> new NodesCache(segmentDir, routingContext.expctxWay, routingContext.forceSecondaryData, maxmem, null, false),
+        islandNodePairs, log).match(trace, start);
+    } finally {
+      for (String line : log) logInfo(line);
+    }
+    if (match == null) return null;
+    if (match.start != null && !sameLink(start, match.start)) {
+      logInfo("driven trace: start moved onto the driven road (" + (int) start.radius + " m -> " + (int) match.start.radius + " m off)");
+      start.crosspoint = match.start.crosspoint;
+      start.node1 = match.start.node1;
+      start.node2 = match.start.node2;
+      start.radius = match.start.radius;
+    }
+    return match;
+  }
+
+  /** Both matched onto the same road link (in either direction): the engine's own crosspoint is kept. */
+  private static boolean sameLink(MatchedWaypoint a, MatchedWaypoint b) {
+    return a.node1 != null && a.node2 != null
+      && (samePos(a.node1, b.node1) && samePos(a.node2, b.node2) || samePos(a.node1, b.node2) && samePos(a.node2, b.node1));
+  }
+
+  private static boolean samePos(OsmNode a, OsmNode b) {
+    return a.ilon == b.ilon && a.ilat == b.ilat;
+  }
+
+  /**
+   * Rule R2 for leg {@code i}: the path before its start, which the leg should not drive back along. The driven
+   * trace (reroute start), {@link RoutingContext#arrivedFrom} (a chained segment), or the route so far (a via),
+   * each with what came before it; its last {@link RoutingContext#DRIVEN_TRACE_MAX_LENGTH_M}. Null while R2 is off.
+   */
+  private DrivenTrace reversalTrace(int i, OsmTrack routedSoFar, MatchedWaypoint wp) {
+    if (!routingContext.continueStraight || routingContext.allowSamewayback || routingContext.reversalCostFactor <= 1.
+      || wp.wpttype == MatchedWaypoint.WAYPOINT_TYPE_DIRECT || wp.wpttype == MatchedWaypoint.WAYPOINT_TYPE_MEETING) {
+      return null;
+    }
+    List<OsmNode> before = new ArrayList<>();
+    if (routingContext.arrivedFrom != null) {
+      before.addAll(routingContext.arrivedFrom);
+    } else if (drivenMatch != null && drivenMatch.trace != null) {
+      DrivenTrace t = drivenMatch.trace;
+      for (int k = 0; k < t.size(); k++) before.add(new OsmNode(t.lon(k), t.lat(k)));
+    }
+    if (i > 0) {
+      for (OsmPathElement e : routedSoFar.nodes) before.add(new OsmNode(e.getILon(), e.getILat()));
+    }
+    return DrivenTrace.tail(before, RoutingContext.DRIVEN_TRACE_MAX_LENGTH_M);
+  }
+
+  /**
+   * Rule R1 at a reroute start: the first step may not go back toward the position just behind the vehicle on the
+   * matched road. Armed only when the matched direction is clear; an unclear direction guards nothing rather than
+   * the wrong way.
+   */
+  private void setReverseGuard(DrivenTraceMatcher.Match match, MatchedWaypoint wp) {
+    routingContext.reverseGuardActive = false;
+    routingContext.reverseGuardHit = false;
+    OsmNode behind = match.behind(wp.crosspoint);
+    if (!match.directionKnown || behind == null) {
+      logInfo("driven trace: direction at the start unclear, no U-turn guard");
+      return;
+    }
+    routingContext.reverseGuardXLon = wp.crosspoint.ilon;
+    routingContext.reverseGuardXLat = wp.crosspoint.ilat;
+    routingContext.reverseGuardPLon = behind.ilon;
+    routingContext.reverseGuardPLat = behind.ilat;
+    routingContext.reverseGuardActive = true;
+  }
+
+  /**
+   * Hard no-U-turn rule at via points ({@code continueStraight}): the leg starting at {@code wp}
+   * must not take its first step back along the edge the previous leg arrived on.
+   * Replaces the former 5 m no-go circle around the via point, which was not exact (it missed
+   * arrivals whose last junction lay farther away) and stayed active for all following legs.
+   *
+   * @param prev the track routed so far (empty before the first leg)
+   */
+  private void setReverseGuard(OsmTrack prev, MatchedWaypoint wp) {
+    routingContext.reverseGuardActive = false;
+    routingContext.reverseGuardHit = false;
+    if (!routingContext.continueStraight || routingContext.allowSamewayback) {
+      return;
+    }
+    if (wp.wpttype == MatchedWaypoint.WAYPOINT_TYPE_DIRECT || wp.wpttype == MatchedWaypoint.WAYPOINT_TYPE_MEETING) {
+      return; // beeline and explicit visit points may turn around
+    }
+    routingContext.reverseGuardXLon = wp.crosspoint.ilon;
+    routingContext.reverseGuardXLat = wp.crosspoint.ilat;
+    if (prev.nodes.size() < 2) {
+      // first leg: only a caller-supplied arrival position (arrivedfrom) can be guarded
+      List<OsmNode> arrived = routingContext.arrivedFrom;
+      for (int k = arrived == null ? -1 : arrived.size() - 1; k >= 0; k--) {
+        OsmNode p = arrived.get(k);
+        if (!routingContext.isAtReverseGuardWaypoint(p.ilon, p.ilat)) {
+          routingContext.reverseGuardPLon = p.ilon;
+          routingContext.reverseGuardPLat = p.ilat;
+          routingContext.reverseGuardActive = true;
+          break;
+        }
+      }
+      return;
+    }
+    // the position the previous leg came from: last track node that is not the via point itself
+    for (int k = prev.nodes.size() - 1; k >= 0; k--) {
+      OsmPathElement e = prev.nodes.get(k);
+      if (!routingContext.isAtReverseGuardWaypoint(e.getILon(), e.getILat())) {
+        routingContext.reverseGuardPLon = e.getILon();
+        routingContext.reverseGuardPLat = e.getILat();
+        routingContext.reverseGuardActive = true;
+        return;
+      }
+    }
   }
 
   OsmTrack getExtraSegment(OsmPathElement start, OsmPathElement end) {
@@ -1814,6 +1992,9 @@ public class RoutingEngine extends Thread {
         if (t != null) {
           track = t;
         } else {
+          if (routingContext.reverseGuardActive && routingContext.reverseGuardHit) {
+            throw new ReverseGuardBlockedException("no track found at pass=" + cfi + " (without a U-turn at " + startWp.name + ")");
+          }
           throw new IllegalArgumentException("no track found at pass=" + cfi);
         }
       }
@@ -2299,7 +2480,10 @@ public class RoutingEngine extends Thread {
       }
     }
 
-    if (nodesVisited < MAXNODES_ISLAND_CHECK && islandNodePairs.getFreezeCount() < 5) {
+    // when the no-U-turn guard rejected a step, an exhausted search means "no way without turning around",
+    // not "island": freezing its node pairs would corrupt waypoint matching for the following legs.
+    // A guard that never fired changed nothing, so island handling applies as usual.
+    if (!(routingContext.reverseGuardActive && routingContext.reverseGuardHit) && nodesVisited < MAXNODES_ISLAND_CHECK && islandNodePairs.getFreezeCount() < 5) {
       throw new RoutingIslandException();
     }
 
@@ -2469,6 +2653,15 @@ public class RoutingEngine extends Thread {
 
   public OsmTrack getFoundRawTrack() {
     return foundRawTrack;
+  }
+
+  /**
+   * Index of the waypoint that cannot be reached (disconnected island), or -1 when the run did not
+   * fail for that reason. The index refers to the engine's matched waypoints, which equal the
+   * waypoints it was given unless beeline/dynamic-distance matching inserts extra ones.
+   */
+  public int getUnreachableWaypointIndex() {
+    return unreachableWaypointIndex;
   }
 
   public String getErrorMessage() {

@@ -184,7 +184,8 @@ public final class NodesCache {
 
       MicroCache segment = osmf.getMicroCache(ilon, ilat);
       // needed for a second chance
-      if (segment == null || (waypointMatcher != null && ((WaypointMatcherImpl) waypointMatcher).useDynamicRange)) {
+      // any other matcher (e.g. the driven-trace link collector) sees each cell once, on its first decoding
+      if (segment == null || (waypointMatcher instanceof WaypointMatcherImpl && ((WaypointMatcherImpl) waypointMatcher).useDynamicRange)) {
         checkEnableCacheCleaning();
         segment = osmf.createMicroCache(ilon, ilat, dataBuffers, expCtxWay, waypointMatcher, directWeaving ? nodesMap : null);
 

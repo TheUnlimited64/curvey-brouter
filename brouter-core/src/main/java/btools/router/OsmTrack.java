@@ -25,6 +25,9 @@ import btools.util.FrozenLongMap;
 public final class OsmTrack {
   final public static String version = OsmTrack.class.getPackage().getImplementationVersion();
 
+  /** Marker proving a fork change reaches the Curvey app (#195 spike). */
+  final public static String CURVEY_FORK_MARKER = "curvey-fork-1";
+
   // csv-header-line
   private static final String MESSAGES_HEADER = "Longitude\tLatitude\tElevation\tDistance\tCostPerKm\tElevCost\tTurnCost\tNodeCost\tInitialCost\tWayTags\tNodeTags\tTime\tEnergy";
 

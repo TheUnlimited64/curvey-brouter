@@ -78,6 +78,100 @@ public final class RoutingContext {
   public boolean correctMisplacedViaPoints;
   public double correctMisplacedViaPointsDistance;
   public boolean continueStraight;
+
+  /**
+   * Positions (BRouter micro-degree offsets) the caller passed before the first waypoint, oldest first,
+   * for callers that route leg by leg: typically the tail of the previous leg's track. With
+   * {@link #continueStraight} the first leg may not retrace the last of them that is clear of the start
+   * (more than {@link #REVERSE_GUARD_VIA_TOLERANCE_M}); the engine picks it with its own metric.
+   * Request key {@code arrivedfrom=lon,lat|lon,lat|...}.
+   */
+  public List<OsmNode> arrivedFrom;
+
+  /**
+   * What the vehicle drove before the first waypoint, oldest first, the last one at the start (#204): GPS fixes and
+   * points on the route it was following, each with its error. With {@link #continueStraight} and no
+   * {@link #arrivedFrom}, the engine reconstructs the road path from them ({@link DrivenTraceMatcher}), starts the
+   * first leg where that path ends, guards it against turning on the spot (R1) and makes going back along the path
+   * expensive (R2, {@link #reversalCostFactor}). Unlike {@link #arrivedFrom} (a planned leg join), a start with no
+   * way forward turns around: the vehicle is already there. See Curvey {@code docs/engine-driven-trace.md}.
+   * Request key {@code driventrace=lon,lat,sigma|lon,lat,sigma|...} (sigma in metres).
+   */
+  public List<TraceObservation> drivenTrace;
+
+  /**
+   * Length of the path before a leg that rule R2 looks at: the driven trace, the previous legs, or
+   * {@link #arrivedFrom}. "Back" means the road just driven; older road is just road again.
+   */
+  static final double DRIVEN_TRACE_MAX_LENGTH_M = 500.;
+
+  /**
+   * Default of {@link #reversalCostFactor}. Going back along the path before the leg costs this many times what that
+   * road normally costs (distance cost, or time in the kinematic car model): a forward route that costs up to
+   * (factor - 1) times the going-back part more is preferred. Chosen with the reroute bench (Curvey
+   * docs/engine-driven-trace.md, "Measurements").
+   */
+  static final float DEFAULT_REVERSAL_COST_FACTOR = 5.f;
+
+  /**
+   * Rule R2: the part of a route step that runs backwards along {@link #reversalTrace} costs this many times its
+   * normal cost.
+   * Profile variable {@code reversalCostFactor}; 1 switches R2 off.
+   */
+  public double reversalCostFactor;
+
+  /** The path before the current leg for rule R2, set per leg by the engine; null while R2 is off. */
+  DrivenTrace reversalTrace;
+
+  /**
+   * Hard no-U-turn guard for the start of a leg ({@link #continueStraight}).
+   * While active, a path leaving the leg's start waypoint (xLon/xLat) must not take its first
+   * step to the position the previous leg arrived from (pLon/pLat), i.e. must not retrace the
+   * arrival edge. Positions closer than {@link #REVERSE_GUARD_VIA_TOLERANCE_M} to the waypoint count as
+   * the waypoint itself (the matched crosspoint and the track's own node differ by rounding).
+   * Set by the engine per leg; evaluated in {@link OsmPath}.
+   */
+  static final int REVERSE_GUARD_VIA_TOLERANCE_M = 2;
+
+  boolean isAtReverseGuardWaypoint(int ilon, int ilat) {
+    // not calcDistance(): that one has side effects (waypoint matching, nogo costs)
+    return CheapRuler.distance(ilon, ilat, reverseGuardXLon, reverseGuardXLat) <= REVERSE_GUARD_VIA_TOLERANCE_M;
+  }
+
+  /**
+   * The first step from the guarded waypoint X toward {@code (ilon, ilat)} retraces the arrival when the
+   * arrival position P lies on that step, within {@link #REVERSE_GUARD_ON_STEP_TOLERANCE_M}. Not "the step ends
+   * at P": when the arrival began on the same stretch of road as X, P is a mid-road position, not the road
+   * node the step ends at, and an equality test would never fire (#204).
+   */
+  boolean isReverseGuardStep(int ilon, int ilat) {
+    double[] k = CheapRuler.getLonLatToMeterScales((reverseGuardXLat + ilat) >> 1);
+    double dx = (ilon - reverseGuardXLon) * k[0];
+    double dy = (ilat - reverseGuardXLat) * k[1];
+    double px = (reverseGuardPLon - reverseGuardXLon) * k[0];
+    double py = (reverseGuardPLat - reverseGuardXLat) * k[1];
+    double len2 = dx * dx + dy * dy;
+    if (len2 == 0) return false;
+    double t = (px * dx + py * dy) / len2;
+    if (t <= 0 || t > 1 + REVERSE_GUARD_ON_STEP_TOLERANCE_M / Math.sqrt(len2)) return false;
+    double ex = px - t * dx;
+    double ey = py - t * dy;
+    return Math.sqrt(ex * ex + ey * ey) <= REVERSE_GUARD_ON_STEP_TOLERANCE_M;
+  }
+
+  /** Rounding of coordinates (about 0.1 m) plus the sideways offset of a projected crosspoint. */
+  static final double REVERSE_GUARD_ON_STEP_TOLERANCE_M = 1.;
+
+  boolean reverseGuardActive;
+  int reverseGuardXLon;
+  int reverseGuardXLat;
+  int reverseGuardPLon;
+  int reverseGuardPLat;
+  /**
+   * Set when the guard rejected a step in the current leg. Only then is an exhausted search "no way
+   * without a U-turn"; otherwise it is an ordinary failure and island handling applies.
+   */
+  boolean reverseGuardHit;
   public boolean useDynamicDistance;
   public boolean buildBeelineOnRange;
 
@@ -149,6 +243,7 @@ public final class RoutingContext {
     correctMisplacedViaPointsDistance = expctxGlobal.getVariableValue("correctMisplacedViaPointsDistance", 400.f); // 0 == don't use distance
 
     continueStraight = 0.f != expctxGlobal.getVariableValue("continueStraight", 0.f);
+    reversalCostFactor = Math.max(1.f, expctxGlobal.getVariableValue("reversalCostFactor", DEFAULT_REVERSAL_COST_FACTOR));
 
     // process tags not used in the profile (to have them in the data-tab)
     processUnusedTags = 0.f != expctxGlobal.getVariableValue("processUnusedTags", 0.f);
