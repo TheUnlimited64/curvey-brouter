@@ -120,6 +120,17 @@ public final class RoutingContext {
    */
   public double reversalCostFactor;
 
+  /**
+   * Experiment #205 (not for merge): a road section that bends less than {@link #curveReferenceDegPerM} costs up to
+   * (1 + straightCostFactor) times its normal cost; a section bending at least that much costs its normal cost. A
+   * surcharge, not a discount, so costs stay non-negative and the A* lower bound stays valid. Profile variable
+   * {@code straightCostFactor}; 0 = off.
+   */
+  public double straightCostFactor;
+
+  /** Experiment #205: turning per metre of road (deg/m) that counts as fully curvy; 0.1 = a 573 m radius bend. */
+  public double curveReferenceDegPerM;
+
   /** The path before the current leg for rule R2, set per leg by the engine; null while R2 is off. */
   DrivenTrace reversalTrace;
 
@@ -244,6 +255,8 @@ public final class RoutingContext {
 
     continueStraight = 0.f != expctxGlobal.getVariableValue("continueStraight", 0.f);
     reversalCostFactor = Math.max(1.f, expctxGlobal.getVariableValue("reversalCostFactor", DEFAULT_REVERSAL_COST_FACTOR));
+    straightCostFactor = Math.max(0.f, expctxGlobal.getVariableValue("straightCostFactor", 0.f));
+    curveReferenceDegPerM = Math.max(0.001f, expctxGlobal.getVariableValue("curveReferenceDegPerM", 0.1f));
 
     // process tags not used in the profile (to have them in the data-tab)
     processUnusedTags = 0.f != expctxGlobal.getVariableValue("processUnusedTags", 0.f);

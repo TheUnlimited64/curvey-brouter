@@ -36,6 +36,9 @@ abstract class OsmPath implements OsmLinkHolder {
   public int treedepth = 0;
 
   // the position of the waypoint just before
+  /** Experiment #205: shorter sections count as this long, so a short kink between two nodes is not a hairpin. */
+  private static final double MIN_CURVE_SECTION_M = 10.;
+
   // this path position (for angle calculation)
   public int originLon;
   public int originLat;
@@ -348,6 +351,17 @@ abstract class OsmPath implements OsmLinkHolder {
             cost = -1;
             return;
           }
+        }
+      }
+
+      // experiment #205: straight road costs extra, curvy road does not (angle = the bend at this section's start)
+      if (rc.straightCostFactor > 0. && !isStartpoint) {
+        double degPerM = Math.abs(angle) / Math.max(dist, MIN_CURVE_SECTION_M);
+        double curvy = Math.min(1., degPerM / rc.curveReferenceDegPerM);
+        sectionCost += sectionCost * rc.straightCostFactor * (1. - curvy);
+        if (sectionCost + cost >= 2000000000.) {
+          cost = -1;
+          return;
         }
       }
 
