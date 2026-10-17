@@ -18,6 +18,12 @@ import java.util.List;
 public class NoUTurnAtViaTest {
   private File workingDir;
 
+  /**
+   * Profile of the routes: trekking (cost = costfactor x distance) by default. Car profiles use the kinematic
+   * model, where the cost is time and costfactor only an add-on penalty, usually 0.
+   */
+  private String profile = "trekking";
+
   /** Loops with vias on roads; each reverses at least once without the rule. */
   private static final double[][][] REVERSING_LOOPS = {
     {{49.997500, 8.723700}, {49.999048, 8.724075}, {50.000528, 8.725140}, {50.001780, 8.719712}, {50.002362, 8.720945}, {50.000352, 8.715350}, {49.997500, 8.723700}},
@@ -38,6 +44,10 @@ public class NoUTurnAtViaTest {
   }
 
   private RoutingEngine route(double[][] latLon, boolean continueStraight, int[] arrivedFromLonLat) {
+    return route(latLon, continueStraight, arrivedFromLonLat, null);
+  }
+
+  private RoutingEngine route(double[][] latLon, boolean continueStraight, int[] arrivedFromLonLat, Double reversalCostFactor) {
     List<OsmNodeNamed> wplist = new ArrayList<>();
     for (int i = 0; i < latLon.length; i++) {
       OsmNodeNamed n = new OsmNodeNamed();
@@ -49,6 +59,7 @@ public class NoUTurnAtViaTest {
     RoutingContext rctx = new RoutingContext();
     rctx.keyValues = new HashMap<>();
     if (continueStraight) rctx.keyValues.put("continueStraight", "1");
+    if (reversalCostFactor != null) rctx.keyValues.put("reversalCostFactor", String.valueOf(reversalCostFactor));
     if (arrivedFromLonLat != null) {
       // one or more lon,lat pairs, oldest first
       rctx.arrivedFrom = new ArrayList<>();
@@ -56,7 +67,7 @@ public class NoUTurnAtViaTest {
         rctx.arrivedFrom.add(new btools.mapaccess.OsmNode(arrivedFromLonLat[k], arrivedFromLonLat[k + 1]));
       }
     }
-    rctx.localFunction = workingDir.getAbsolutePath() + "/../../../../misc/profiles2/trekking.brf";
+    rctx.localFunction = workingDir.getAbsolutePath() + "/../../../../misc/profiles2/" + profile + ".brf";
     RoutingEngine re = new RoutingEngine(null, null,
       new File(workingDir, "/../../../../brouter-map-creator/build/resources/test/tmp/segments"), wplist, rctx);
     re.quite = true;
@@ -91,6 +102,55 @@ public class NoUTurnAtViaTest {
       Assert.assertNull(re.getErrorMessage(), re.getErrorMessage());
       Assert.assertEquals(0, reversals(re.getFoundTrack()));
     }
+  }
+
+  /**
+   * Metres of {@code track} that run backwards along the {@link RoutingContext#DRIVEN_TRACE_MAX_LENGTH_M} before them,
+   * measured with the engine's own R2 test: a later leg coming back along an earlier one.
+   */
+  private static double backAlongItself(OsmTrack track) {
+    List<btools.mapaccess.OsmNode> before = new ArrayList<>();
+    double back = 0;
+    for (int k = 0; k + 1 < track.nodes.size(); k++) {
+      OsmPathElement a = track.nodes.get(k);
+      OsmPathElement b = track.nodes.get(k + 1);
+      before.add(new btools.mapaccess.OsmNode(a.getILon(), a.getILat()));
+      DrivenTrace t = DrivenTrace.tail(before, RoutingContext.DRIVEN_TRACE_MAX_LENGTH_M);
+      if (t != null) back += t.backwardOverlapM(a.getILon(), a.getILat(), b.getILon(), b.getILat());
+    }
+    return back;
+  }
+
+  /**
+   * R1 stops the reversal at a via; R2 also makes the next leg avoid coming back along the previous one later
+   * (after a loop through a side street). Never more of it than without R2, and less on some loop.
+   */
+  @Test
+  public void goingBackAlongThePreviousLegCostsExtra() {
+    assertR2ReducesGoingBack();
+  }
+
+  @Test
+  public void goingBackAlongThePreviousLegCostsExtraWithTheKinematicCarProfile() {
+    profile = "car-vario";
+    assertR2ReducesGoingBack();
+  }
+
+  private void assertR2ReducesGoingBack() {
+    int reduced = 0;
+    for (double[][] loop : REVERSING_LOOPS) {
+      RoutingEngine withoutR2 = route(loop, true, null, 1.);
+      RoutingEngine withR2 = route(loop, true, null, null);
+      if (withoutR2.getErrorMessage() != null) continue; // a via on a dead end for this profile: fails by R1 alone
+      Assert.assertNull("R2 never makes a route fail: " + withR2.getErrorMessage(), withR2.getErrorMessage());
+      Assert.assertEquals("R2 never brings a reversal back", 0, reversals(withR2.getFoundTrack()));
+
+      double before = backAlongItself(withoutR2.getFoundTrack());
+      double after = backAlongItself(withR2.getFoundTrack());
+      Assert.assertTrue("loop from " + loop[0][0] + ": " + after + " m back with R2, " + before + " m without", after <= before + 1.);
+      if (after < before - 10.) reduced++;
+    }
+    Assert.assertTrue("premise: some loop comes back along a previous leg without R2", reduced > 0);
   }
 
   @Test

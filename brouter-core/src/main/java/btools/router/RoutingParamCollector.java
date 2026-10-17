@@ -195,8 +195,8 @@ public class RoutingParamCollector {
 
         if (key.equals("arrivedfrom")) {
           rctx.arrivedFrom = readPositionList(value);
-        } else if (key.equals("drivenpath")) {
-          rctx.drivenPath = readPositionList(value);
+        } else if (key.equals("driventrace")) {
+          rctx.drivenTrace = readTraceObservations(value);
         } else if (key.equals("straight")) {
           try {
             String[] sa = value.split(",");
@@ -344,6 +344,30 @@ public class RoutingParamCollector {
       }
     }
     return positions.isEmpty() ? null : positions;
+  }
+
+  /**
+   * Reads {@code lon,lat,sigma|lon,lat,sigma|...} (sigma in metres) into trace observations, in order; malformed
+   * entries are skipped. Returns null when nothing is left.
+   */
+  static List<TraceObservation> readTraceObservations(String value) {
+    List<TraceObservation> observations = new ArrayList<>();
+    for (String entry : value.split("\\|")) {
+      String[] f = entry.split(",");
+      if (f.length != 3) continue;
+      try {
+        double sigma = Double.parseDouble(f[2]);
+        if (!(sigma > 0.)) continue; // NaN, zero or negative
+        // same offset-then-round as waypoints
+        observations.add(new TraceObservation(
+          (int) ((Double.parseDouble(f[0]) + 180.) * 1000000. + 0.5),
+          (int) ((Double.parseDouble(f[1]) + 90.) * 1000000. + 0.5),
+          sigma));
+      } catch (NumberFormatException e) {
+        // skipped like any malformed entry
+      }
+    }
+    return observations.isEmpty() ? null : observations;
   }
 
   public List<OsmNodeNamed> readNogoList(String nogos) {

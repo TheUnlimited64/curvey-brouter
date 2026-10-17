@@ -89,53 +89,39 @@ public final class RoutingContext {
   public List<OsmNode> arrivedFrom;
 
   /**
-   * Positions (BRouter micro-degree offsets) the vehicle actually drove before the first waypoint, oldest
-   * first: e.g. the last few hundred metres of GPS fixes, snapped to the old route where it was on it.
-   * With {@link #continueStraight} and no {@link #arrivedFrom}, the engine matches them to roads and the
-   * first leg may not start back along the road section it arrived on. Unlike {@link #arrivedFrom} (a
-   * planned leg join), a start with no way forward turns around: the vehicle is already there.
-   * Request key {@code drivenpath=lon,lat|lon,lat|...}.
+   * What the vehicle drove before the first waypoint, oldest first, the last one at the start (#204): GPS fixes and
+   * points on the route it was following, each with its error. With {@link #continueStraight} and no
+   * {@link #arrivedFrom}, the engine reconstructs the road path from them ({@link DrivenTraceMatcher}), starts the
+   * first leg where that path ends, guards it against turning on the spot (R1) and makes going back along the path
+   * expensive (R2, {@link #reversalCostFactor}). Unlike {@link #arrivedFrom} (a planned leg join), a start with no
+   * way forward turns around: the vehicle is already there. See Curvey {@code docs/engine-driven-trace.md}.
+   * Request key {@code driventrace=lon,lat,sigma|lon,lat,sigma|...} (sigma in metres).
    */
-  public List<OsmNode> drivenPath;
-
-  /** Only the last this many {@link #drivenPath} positions are used (the arrival is what matters). */
-  static final int DRIVEN_PATH_MAX_POSITIONS = 12;
+  public List<TraceObservation> drivenTrace;
 
   /**
-   * Every driven position must lie within this distance of the matched road path (GPS error plus road
-   * width); otherwise the vehicle came another way than the engine's path, which is not trusted.
+   * Length of the path before a leg that rule R2 looks at: the driven trace, the previous legs, or
+   * {@link #arrivedFrom}. "Back" means the road just driven; older road is just road again.
    */
-  static final double DRIVEN_PATH_CORRIDOR_M = 30.;
+  static final double DRIVEN_TRACE_MAX_LENGTH_M = 500.;
 
   /**
-   * The matched road path may be at most this factor times the length of the driven polyline (plus
-   * {@link #DRIVEN_PATH_DETOUR_SLACK_M}): a longer one went round something the vehicle did not, for
-   * example a block to reach the start from its other side. Such a match is not trusted.
+   * Default of {@link #reversalCostFactor}. Going back along the path before the leg costs this many times what that
+   * road normally costs (distance cost, or time in the kinematic car model): a forward route that costs up to
+   * (factor - 1) times the going-back part more is preferred. Chosen with the reroute bench (Curvey
+   * docs/engine-driven-trace.md, "Measurements").
    */
-  static final double DRIVEN_PATH_DETOUR_FACTOR = 1.5;
-  static final double DRIVEN_PATH_DETOUR_SLACK_M = 50.;
+  static final float DEFAULT_REVERSAL_COST_FACTOR = 5.f;
 
   /**
-   * A driven path needs at least this many positions (after dropping those at the start): a single GPS point
-   * cannot tell the road from a neighbouring one, so no guard is armed. When the whole path does not match
-   * plausibly, the oldest positions are dropped one at a time and the match is retried, down to this many.
+   * Rule R2: the part of a route step that runs backwards along {@link #reversalTrace} costs this many times its
+   * normal cost.
+   * Profile variable {@code reversalCostFactor}; 1 switches R2 off.
    */
-  static final int DRIVEN_PATH_MIN_POSITIONS = 2;
+  public double reversalCostFactor;
 
-  /**
-   * The request's heading may differ from the matched arrival direction by at most this much (GPS bearing
-   * error); beyond it the vehicle is not travelling the way its path says (it turned around), so no guard.
-   */
-  static final double DRIVEN_PATH_HEADING_VETO_DEG = 100.;
-
-  /**
-   * Share of the driven positions that may lie outside the corridor (GPS outliers) and are ignored, rounded
-   * down: a short path tolerates none. More than this and the path is another road than the match.
-   */
-  static final double DRIVEN_PATH_OUTLIER_SHARE = 0.15;
-
-  /** Node budget for the driven-path search (a few hundred metres of road). */
-  static final int DRIVEN_PATH_MAX_NODES = 5000;
+  /** The path before the current leg for rule R2, set per leg by the engine; null while R2 is off. */
+  DrivenTrace reversalTrace;
 
   /**
    * Hard no-U-turn guard for the start of a leg ({@link #continueStraight}).
@@ -257,6 +243,7 @@ public final class RoutingContext {
     correctMisplacedViaPointsDistance = expctxGlobal.getVariableValue("correctMisplacedViaPointsDistance", 400.f); // 0 == don't use distance
 
     continueStraight = 0.f != expctxGlobal.getVariableValue("continueStraight", 0.f);
+    reversalCostFactor = Math.max(1.f, expctxGlobal.getVariableValue("reversalCostFactor", DEFAULT_REVERSAL_COST_FACTOR));
 
     // process tags not used in the profile (to have them in the data-tab)
     processUnusedTags = 0.f != expctxGlobal.getVariableValue("processUnusedTags", 0.f);

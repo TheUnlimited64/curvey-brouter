@@ -242,12 +242,18 @@ abstract class OsmPath implements OsmLinkHolder {
 
       int dist = rc.calcDistance(lon1, lat1, lon2, lat2);
 
+      // where this step really begins: a leg starts inside a road segment, at its crosspoint
+      int stepLon1 = lon1;
+      int stepLat1 = lat1;
+
       boolean stopAtEndpoint = false;
       if (rc.shortestmatch) {
         if (rc.isEndpoint) {
           stopAtEndpoint = true;
           ele2 = interpolateEle(ele1, ele2, rc.wayfraction);
         } else {
+          stepLon1 = rc.ilonshortest; // before checkPendingEndpoint() moves it to the leg's end
+          stepLat1 = rc.ilatshortest;
           // we just start here, reset everything
           cost = 0;
           resetState();
@@ -325,6 +331,24 @@ abstract class OsmPath implements OsmLinkHolder {
       if ((sectionCost < 0. || costfactor > 9998. && !detailMode) || sectionCost + cost >= 2000000000.) {
         cost = -1;
         return;
+      }
+
+      // rule R2 (#204): going back along the path driven before this leg costs extra, nothing else does
+      if (rc.reversalTrace != null) {
+        int stepLon2 = stopAtEndpoint ? rc.ilonshortest : lon2;
+        int stepLat2 = stopAtEndpoint ? rc.ilatshortest : lat2;
+        double back = rc.reversalTrace.backwardOverlapM(stepLon1, stepLat1, stepLon2, stepLat2);
+        if (back > 0.) {
+          // the overlapping share of what this step really costs: costfactor x distance in a classic profile, but
+          // time in the kinematic (car) model, where costfactor is only an add-on penalty and mostly 0
+          double stepLen = btools.util.CheapRuler.distance(stepLon1, stepLat1, stepLon2, stepLat2);
+          double share = stepLen > 0. ? Math.min(1., back / stepLen) : 1.;
+          sectionCost += sectionCost * share * (rc.reversalCostFactor - 1.);
+          if (sectionCost + cost >= 2000000000.) {
+            cost = -1;
+            return;
+          }
+        }
       }
 
       if (isTrafficBackbone) {
