@@ -69,6 +69,7 @@ public class RoutingEngine extends Thread {
   protected String outputMessage = null;
   protected String errorMessage = null;
   private int unreachableWaypointIndex = -1;
+  private int reverseGuardBlockedWaypointIndex = -1;
 
   private volatile boolean terminated;
 
@@ -848,6 +849,9 @@ public class RoutingEngine extends Thread {
     if (t instanceof UnreachableWaypointException) {
       unreachableWaypointIndex = ((UnreachableWaypointException) t).getWaypointIndex();
     }
+    if (t instanceof ReverseGuardBlockedException) {
+      reverseGuardBlockedWaypointIndex = ((ReverseGuardBlockedException) t).getWaypointIndex();
+    }
     logInfo("Error (linksProcessed=" + linksProcessed + " open paths: " + openSet.getSize() + "): " + errorMessage);
   }
 
@@ -1067,7 +1071,8 @@ public class RoutingEngine extends Thread {
         try {
           seg = searchLeg(matchedWaypoints.get(i), matchedWaypoints.get(i + 1), nearby, refTracks[i]);
         } catch (ReverseGuardBlockedException e) {
-          if (!fromDrivenTrace) throw e; // a planned via on a dead end fails on purpose (#200)
+          // a planned via on a dead end fails on purpose (#200), naming the waypoint the leg starts at (#228)
+          if (!fromDrivenTrace) throw new ReverseGuardBlockedException(i, e.getMessage());
           // the vehicle is already there and has no way forward (dead end, car park): turning around is the route.
           // R2 stays: once turned, the route still prefers not to go back further than it must.
           logInfo("no way forward from the start without a U-turn, allowing it");
@@ -2662,6 +2667,16 @@ public class RoutingEngine extends Thread {
    */
   public int getUnreachableWaypointIndex() {
     return unreachableWaypointIndex;
+  }
+
+  /**
+   * Index of the waypoint the no-U-turn guard ({@code continueStraight}) could not leave without turning around
+   * (a dead end for the profile), or -1 when the run did not fail that way. Like
+   * {@link #getUnreachableWaypointIndex()} it refers to the engine's matched waypoints, which equal the waypoints it
+   * was given unless beeline/dynamic-distance matching inserts extra ones.
+   */
+  public int getReverseGuardBlockedWaypointIndex() {
+    return reverseGuardBlockedWaypointIndex;
   }
 
   public String getErrorMessage() {
