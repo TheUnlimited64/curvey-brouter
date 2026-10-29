@@ -1,0 +1,72 @@
+// The routing engine for the browser (Curvey web app): TeaVM compiles it to WebAssembly (Wasm GC).
+// Wasm GC keeps Java float arithmetic, so its output is byte-identical to the JVM engine; TeaVM's JS
+// backend computes float as double and changes route costs, so it is not built.
+plugins {
+  id 'java'
+  id 'org.teavm' version '0.16.0'
+}
+
+repositories {
+  mavenCentral()
+}
+
+java {
+  // TeaVM 0.16 needs Java 17; the engine modules themselves stay on Java 11.
+  sourceCompatibility = JavaVersion.VERSION_17
+  targetCompatibility = JavaVersion.VERSION_17
+}
+
+// brouter-util is compiled from a copy of its sources without the two classes that have browser
+// replacements in src/main/java/btools/util (StackSampler, BuildVersion). With the jar on the
+// classpath, TeaVM would pick the originals.
+configurations.all {
+  exclude group: 'org.btools', module: 'brouter-util'
+}
+
+def utilSources = tasks.register('copyUtilSources', Sync) {
+  from('../brouter-util/src/main/java') {
+    exclude 'btools/util/StackSampler.java', 'btools/util/BuildVersion.java'
+  }
+  into layout.buildDirectory.dir('generated/util-sources')
+}
+
+sourceSets {
+  main {
+    java.srcDir(utilSources)
+  }
+  // JVM-only reference CLI: the same WebRouter on the JVM, to record expected outputs.
+  jvm {
+    java.srcDir 'src/jvm/java'
+    compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+  }
+}
+
+dependencies {
+  implementation project(':brouter-core')
+  implementation project(':brouter-mapaccess')
+  implementation project(':brouter-expressions')
+  implementation project(':brouter-codec')
+  implementation teavm.libs.jso
+  testImplementation 'junit:junit:4.13.2'
+}
+
+teavm {
+  wasmGC {
+    mainClass = 'btools.web.TeaVmMain'
+    optimization = org.teavm.gradle.api.OptimizationLevel.AGGRESSIVE
+    targetFileName = 'brouter.wasm'
+    obfuscated = true
+    copyRuntime = true
+  }
+}
+
+// Map-creator tests generate the Dreieich test segments the WebRouter test routes on.
+test.dependsOn ':brouter-map-creator:test'
+
+/** Routes one request on the JVM: {@code -Pargs="<lon,lat|...> <profile> <segmentDir> <out.json>"}. */
+tasks.register('routeJvm', JavaExec) {
+  classpath = sourceSets.jvm.runtimeClasspath
+  mainClass = 'btools.web.JvmMain'
+  args = (project.findProperty('args') ?: '').toString().split(' ').findAll { it }
+}

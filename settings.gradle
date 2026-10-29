@@ -5,3 +5,9 @@ if (file('local.properties').exists()) {
     println "Note: To include Android app add 'local.properties' with 'sdk.dir=...' "
 }
 include ':brouter-mapaccess', ':brouter-core', ':brouter-util', ':brouter-expressions', ':brouter-codec', ':brouter-map-creator', ':brouter-server'
+
+// Browser build of the engine (Curvey web app). Only in a standalone build: Curvey's Android app
+// includes this repository as a composite build and must not resolve the TeaVM toolchain.
+if (gradle.parent == null) {
+  include ':brouter-web'
+}

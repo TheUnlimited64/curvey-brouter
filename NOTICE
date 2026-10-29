@@ -47,3 +47,9 @@ Changes from upstream (Curvey modifications):
 - brouter-core: an unreachable waypoint (target/start island) now raises `UnreachableWaypointException`
   carrying the waypoint index; `RoutingEngine.getUnreachableWaypointIndex()` exposes it (-1 otherwise).
   The error message text is unchanged (#201).
+- brouter-util: `BuildVersion.get()` reads the jar-manifest version that `OsmTrack.version` used to read
+  directly, so a build without a manifest (the browser) can replace it. No behaviour change on the JVM.
+- brouter-web (new module, Curvey web app #260): the engine compiled to WebAssembly (Wasm GC) with TeaVM.
+  `JsFileSystem` serves `RandomAccessFile` reads from `globalThis.brouterFs`; `WebRouter` runs one request
+  like Curvey's Android embedded engine. Browser replacements for `StackSampler` and `BuildVersion`. Only
+  included in standalone builds, not when Curvey's Android app includes this repository.
