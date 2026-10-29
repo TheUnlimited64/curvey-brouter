@@ -23,7 +23,7 @@ import btools.util.CompactLongMap;
 import btools.util.FrozenLongMap;
 
 public final class OsmTrack {
-  final public static String version = OsmTrack.class.getPackage().getImplementationVersion();
+  final public static String version = btools.util.BuildVersion.get();
 
   /** Marker proving a fork change reaches the Curvey app (#195 spike). */
   final public static String CURVEY_FORK_MARKER = "curvey-fork-1";

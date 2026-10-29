@@ -1,0 +1,74 @@
+// Spike #259 (curvey): the routing engine compiled for the browser with TeaVM.
+// Not part of any release build.
+plugins {
+  id 'java'
+  id 'org.teavm' version '0.16.0'
+}
+
+repositories {
+  mavenCentral()
+}
+
+java {
+  sourceCompatibility = JavaVersion.VERSION_17
+  targetCompatibility = JavaVersion.VERSION_17
+}
+
+// brouter-util is compiled from source here, so the browser stubs in src/main/java/btools/util
+// (StackSampler, BuildVersion) replace the originals instead of competing with them on the classpath.
+configurations.all {
+  exclude group: 'org.btools', module: 'brouter-util'
+}
+
+def utilSources = tasks.register('copyUtilSources', Sync) {
+  from('../brouter-util/src/main/java') {
+    exclude 'btools/util/StackSampler.java', 'btools/util/BuildVersion.java'
+  }
+  into layout.buildDirectory.dir('generated/util-sources')
+}
+
+sourceSets {
+  main {
+    java.srcDir(utilSources)
+  }
+  jvm {
+    java.srcDir 'src/jvm/java'
+    compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+  }
+}
+
+dependencies {
+  implementation project(':brouter-core')
+  implementation project(':brouter-mapaccess')
+  implementation project(':brouter-expressions')
+  implementation project(':brouter-codec')
+  implementation teavm.libs.jso
+}
+
+teavm {
+  all {
+    mainClass = 'btools.web.TeaVmMain'
+    optimization = org.teavm.gradle.api.OptimizationLevel.AGGRESSIVE
+  }
+  js {
+    moduleType = org.teavm.gradle.api.JSModuleType.ES2015
+    targetFileName = 'brouter.js'
+    obfuscated = (project.findProperty('teavmObfuscate') ?: 'true').toBoolean()
+  }
+  wasmGC {
+    targetFileName = 'brouter.wasm'
+    obfuscated = true
+    copyRuntime = true
+  }
+}
+
+tasks.register('runJvm', JavaExec) {
+  classpath = sourceSets.jvm.runtimeClasspath
+  mainClass = 'btools.web.JvmMain'
+  args = (project.findProperty('spikeArgs') ?: '').toString().split(' ').findAll { it }
+}
+
+tasks.register('printJvmClasspath') {
+  doLast { println sourceSets.jvm.runtimeClasspath.asPath }
+}

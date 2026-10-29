@@ -5,3 +5,4 @@ if (file('local.properties').exists()) {
     println "Note: To include Android app add 'local.properties' with 'sdk.dir=...' "
 }
 include ':brouter-mapaccess', ':brouter-core', ':brouter-util', ':brouter-expressions', ':brouter-codec', ':brouter-map-creator', ':brouter-server'
+include ':brouter-web'
