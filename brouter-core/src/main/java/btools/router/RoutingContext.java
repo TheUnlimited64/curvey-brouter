@@ -181,14 +181,28 @@ public final class RoutingContext {
     if (className == null) {
       pm = new StdModel();
     } else {
-      try {
-        Class<?> clazz = Class.forName(className);
-        pm = (OsmPathModel) clazz.getDeclaredConstructor().newInstance();
-      } catch (Exception e) {
-        throw new RuntimeException("Cannot create path-model: " + e);
+      pm = knownModel(className);
+      if (pm == null) {
+        try {
+          Class<?> clazz = Class.forName(className);
+          pm = (OsmPathModel) clazz.getDeclaredConstructor().newInstance();
+        } catch (Exception e) {
+          throw new RuntimeException("Cannot create path-model: " + e);
+        }
       }
     }
     initModel();
+  }
+
+  /**
+   * The engine's own path models, built without reflection: the WebAssembly build (brouter-web, TeaVM)
+   * keeps no class names, so {@code Class.forName} fails there (car-vario uses KinematicModel; Curvey #262).
+   * Other names still load by reflection.
+   */
+  private static OsmPathModel knownModel(String className) {
+    if (KinematicModel.class.getName().equals(className)) return new KinematicModel();
+    if (StdModel.class.getName().equals(className)) return new StdModel();
+    return null;
   }
 
   public void initModel() {
