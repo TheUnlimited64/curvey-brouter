@@ -823,6 +823,12 @@ construction;0000442502 steps
 construction;0000360177 road highway
 construction;0000000049 bridleway
 
+curvey_curve_class;0000000001 straight
+curvey_curve_class;0000000001 gentle
+curvey_curve_class;0000000001 moderate
+curvey_curve_class;0000000001 curvy
+curvey_curve_class;0000000001 twisty
+
 
 ---context:node
 

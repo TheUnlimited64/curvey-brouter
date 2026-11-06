@@ -373,6 +373,7 @@ public class RoutingEngine extends Thread {
         nodesCache.close();
         nodesCache = null;
       }
+      closeCurvatureTiles();
       openSet.clear();
       finished = true; // this signals termination to outside
 
@@ -880,6 +881,7 @@ public class RoutingEngine extends Thread {
         nodesCache.close();
         nodesCache = null;
       }
+      closeCurvatureTiles();
       openSet.clear();
       finished = true; // this signals termination to outside
 
@@ -2037,6 +2039,22 @@ public class RoutingEngine extends Thread {
   }
 
 
+  /** Curvey: curvature tiles for this request, null when the profile does not read them. */
+  private CurvatureTiles curvatureTiles;
+  private boolean curvatureTilesChecked;
+
+  /** Curvey: the curvature tiles this request reads, or null; for logs and tests. */
+  public CurvatureTiles getCurvatureTiles() {
+    return curvatureTiles;
+  }
+
+  private void closeCurvatureTiles() {
+    if (curvatureTiles != null) {
+      if (hasInfo()) logInfo(curvatureTiles.stats());
+      curvatureTiles.close();
+    }
+  }
+
   private void resetCache(boolean detailed) {
     if (hasInfo() && nodesCache != null) {
       logInfo("NodesCache status before reset=" + nodesCache.formatStatus());
@@ -2044,6 +2062,11 @@ public class RoutingEngine extends Thread {
     long maxmem = routingContext.memoryclass * 1024L * 1024L; // in MB
 
     nodesCache = new NodesCache(segmentDir, routingContext.expctxWay, routingContext.forceSecondaryData, maxmem, nodesCache, detailed);
+    if (!curvatureTilesChecked) { // Curvey: curvature tiles next to the routing tiles, when the profile reads them
+      curvatureTiles = CurvatureTiles.create(segmentDir, routingContext.expctxWay);
+      curvatureTilesChecked = true;
+    }
+    nodesCache.setLinkTagHook(curvatureTiles);
     islandNodePairs.clearTempPairs();
   }
 
