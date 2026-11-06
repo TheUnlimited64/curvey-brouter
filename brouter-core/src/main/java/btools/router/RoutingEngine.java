@@ -2037,6 +2037,9 @@ public class RoutingEngine extends Thread {
   }
 
 
+  /** EXPERIMENT (#341): curvature side-cars, null when absent from the profile. */
+  public CurvatureSidecars curvatureSidecars;
+
   private void resetCache(boolean detailed) {
     if (hasInfo() && nodesCache != null) {
       logInfo("NodesCache status before reset=" + nodesCache.formatStatus());
@@ -2044,6 +2047,8 @@ public class RoutingEngine extends Thread {
     long maxmem = routingContext.memoryclass * 1024L * 1024L; // in MB
 
     nodesCache = new NodesCache(segmentDir, routingContext.expctxWay, routingContext.forceSecondaryData, maxmem, nodesCache, detailed);
+    if (curvatureSidecars == null) curvatureSidecars = CurvatureSidecars.create(segmentDir, routingContext.expctxWay);
+    nodesCache.setLinkTagHook(curvatureSidecars);
     islandNodePairs.clearTempPairs();
   }
 

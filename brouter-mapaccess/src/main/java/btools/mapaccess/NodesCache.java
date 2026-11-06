@@ -57,6 +57,11 @@ public final class NodesCache {
 
   private boolean directWeaving = !Boolean.getBoolean("disableDirectWeaving");
 
+  /** EXPERIMENT (#341): per-link description hook used while cells are woven. */
+  public void setLinkTagHook(btools.codec.LinkTagHook hook) {
+    dataBuffers.linkTagHook = hook;
+  }
+
   public String formatStatus() {
     return "collecting=" + garbageCollectionEnabled + " noGhosts=" + ghostCleaningDone + " cacheSum=" + cacheSum + " cacheSumClean=" + cacheSumClean + " ghostSum=" + ghostSum + " ghostWakeup=" + ghostWakeup;
   }

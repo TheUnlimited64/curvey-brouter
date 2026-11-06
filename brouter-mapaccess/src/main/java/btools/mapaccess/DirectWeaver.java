@@ -170,6 +170,10 @@ public final class DirectWeaver extends ByteDataWriter {
         }
 
         if (wayTags != null) {
+          byte[] description = wayTags.data;
+          if (dataBuffers.linkTagHook != null) {
+            description = dataBuffers.linkTagHook.tagLink(ilon, ilat, linklon, linklat, description);
+          }
           byte[] geometry = null;
           if (aboffset > 0) {
             geometry = new byte[aboffset];
@@ -182,11 +186,11 @@ public final class DirectWeaver extends ByteDataWriter {
             if (link == null) {
               link = new OsmLink();
             }
-            link.descriptionBitmap = wayTags.data;
+            link.descriptionBitmap = description;
             link.geometry = geometry;
             node.addLink(link, isReverse, node2);
           } else { // weave external link
-            node.addLink(linklon, linklat, wayTags.data, geometry, hollowNodes, isReverse);
+            node.addLink(linklon, linklat, description, geometry, hollowNodes, isReverse);
             node.visitID = 1;
           }
         }

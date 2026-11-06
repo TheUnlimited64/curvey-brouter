@@ -15,6 +15,8 @@ public final class DataBuffers {
   public int[] ibuf3 = new int[2048];
   public int[] alon = new int[2048];
   public int[] alat = new int[2048];
+  /** EXPERIMENT (#341): optional per-link description hook, see {@link LinkTagHook}. */
+  public LinkTagHook linkTagHook;
 
   public DataBuffers() {
     this(new byte[65636]);
