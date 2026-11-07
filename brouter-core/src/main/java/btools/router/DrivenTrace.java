@@ -1,7 +1,9 @@
 package btools.router;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import btools.mapaccess.OsmPos;
 import btools.util.CheapRuler;
@@ -31,6 +33,12 @@ final class DrivenTrace {
    */
   private static final int STEP_BOX_MARGIN = 20;
 
+  /** Traces with more steps than this get a grid of their steps, so a step test does not scan the whole trace. */
+  private static final int GRID_MIN_STEPS = 64;
+
+  /** Grid cell size, micro degrees (about 1 km): a route step spans one to a few cells. */
+  private static final int GRID_CELL = 10_000;
+
   private final int[] lons;
   private final int[] lats;
   private final double lengthM;
@@ -40,6 +48,9 @@ final class DrivenTrace {
   private final int maxLon;
   private final int minLat;
   private final int maxLat;
+
+  /** Steps (index of their end point) per grid cell; null for a short trace. */
+  private final Map<Long, int[]> grid;
 
   private DrivenTrace(int[] lons, int[] lats) {
     this.lons = lons;
@@ -61,6 +72,33 @@ final class DrivenTrace {
     maxLon = x1 + marginLon;
     minLat = y0 - marginLat;
     maxLat = y1 + marginLat;
+    grid = lons.length - 1 > GRID_MIN_STEPS ? buildGrid() : null;
+  }
+
+  private static long cellKey(int cx, int cy) {
+    return ((long) cx << 32) ^ (cy & 0xffffffffL);
+  }
+
+  private Map<Long, int[]> buildGrid() {
+    Map<Long, List<Integer>> cells = new HashMap<>();
+    for (int i = 1; i < lons.length; i++) {
+      int x0 = (Math.min(lons[i - 1], lons[i]) - STEP_BOX_MARGIN) / GRID_CELL;
+      int x1 = (Math.max(lons[i - 1], lons[i]) + STEP_BOX_MARGIN) / GRID_CELL;
+      int y0 = (Math.min(lats[i - 1], lats[i]) - STEP_BOX_MARGIN) / GRID_CELL;
+      int y1 = (Math.max(lats[i - 1], lats[i]) + STEP_BOX_MARGIN) / GRID_CELL;
+      for (int cx = x0; cx <= x1; cx++) {
+        for (int cy = y0; cy <= y1; cy++) {
+          cells.computeIfAbsent(cellKey(cx, cy), c -> new ArrayList<>()).add(i);
+        }
+      }
+    }
+    Map<Long, int[]> out = new HashMap<>(cells.size() * 2);
+    for (Map.Entry<Long, List<Integer>> e : cells.entrySet()) {
+      int[] steps = new int[e.getValue().size()];
+      for (int j = 0; j < steps.length; j++) steps[j] = e.getValue().get(j);
+      out.put(e.getKey(), steps);
+    }
+    return out;
   }
 
   /**
@@ -130,30 +168,49 @@ final class DrivenTrace {
     }
     double[] k = CheapRuler.getLonLatToMeterScales((fromLat + toLat) >> 1);
     double total = 0.;
-    for (int i = 1; i < lons.length; i++) {
-      int aLon = lons[i - 1], aLat = lats[i - 1], bLon = lons[i], bLat = lats[i];
-      // cheap reject: the route step's box does not touch the driven step's box
-      if (Math.max(fromLon, toLon) < Math.min(aLon, bLon) - STEP_BOX_MARGIN
-        || Math.min(fromLon, toLon) > Math.max(aLon, bLon) + STEP_BOX_MARGIN
-        || Math.max(fromLat, toLat) < Math.min(aLat, bLat) - STEP_BOX_MARGIN
-        || Math.min(fromLat, toLat) > Math.max(aLat, bLat) + STEP_BOX_MARGIN) {
-        continue;
+    if (grid != null) {
+      // each driven step once, even when it lies in several of the cells the route step touches
+      java.util.BitSet seen = new java.util.BitSet(lons.length);
+      for (int cx = Math.min(fromLon, toLon) / GRID_CELL; cx <= Math.max(fromLon, toLon) / GRID_CELL; cx++) {
+        for (int cy = Math.min(fromLat, toLat) / GRID_CELL; cy <= Math.max(fromLat, toLat) / GRID_CELL; cy++) {
+          int[] steps = grid.get(cellKey(cx, cy));
+          if (steps == null) continue;
+          for (int i : steps) {
+            if (seen.get(i)) continue;
+            seen.set(i);
+            total += stepBackwardOverlap(i, fromLon, fromLat, toLon, toLat, k);
+          }
+        }
       }
-      double ux = (bLon - aLon) * k[0], uy = (bLat - aLat) * k[1];
-      double len2 = ux * ux + uy * uy;
-      if (len2 == 0.) continue;
-      double len = Math.sqrt(len2);
-      double fx = (fromLon - aLon) * k[0], fy = (fromLat - aLat) * k[1];
-      double tx = (toLon - aLon) * k[0], ty = (toLat - aLat) * k[1];
-      if (Math.abs(fx * uy - fy * ux) / len > ON_STEP_TOLERANCE_M) continue;
-      if (Math.abs(tx * uy - ty * ux) / len > ON_STEP_TOLERANCE_M) continue;
-      double tFrom = (fx * ux + fy * uy) / len2;
-      double tTo = (tx * ux + ty * uy) / len2;
-      if (tTo >= tFrom) continue; // forward along the trace
-      double overlap = (Math.min(tFrom, 1.) - Math.max(tTo, 0.)) * len;
-      if (overlap >= MIN_OVERLAP_M) total += overlap;
+    } else {
+      for (int i = 1; i < lons.length; i++) total += stepBackwardOverlap(i, fromLon, fromLat, toLon, toLat, k);
     }
     double stepLen = CheapRuler.distance(fromLon, fromLat, toLon, toLat);
     return Math.min(total, stepLen);
+  }
+
+  /** Backward overlap of the route step with driven step {@code i} (from point {@code i - 1} to {@code i}). */
+  private double stepBackwardOverlap(int i, int fromLon, int fromLat, int toLon, int toLat, double[] k) {
+    int aLon = lons[i - 1], aLat = lats[i - 1], bLon = lons[i], bLat = lats[i];
+    // cheap reject: the route step's box does not touch the driven step's box
+    if (Math.max(fromLon, toLon) < Math.min(aLon, bLon) - STEP_BOX_MARGIN
+      || Math.min(fromLon, toLon) > Math.max(aLon, bLon) + STEP_BOX_MARGIN
+      || Math.max(fromLat, toLat) < Math.min(aLat, bLat) - STEP_BOX_MARGIN
+      || Math.min(fromLat, toLat) > Math.max(aLat, bLat) + STEP_BOX_MARGIN) {
+      return 0.;
+    }
+    double ux = (bLon - aLon) * k[0], uy = (bLat - aLat) * k[1];
+    double len2 = ux * ux + uy * uy;
+    if (len2 == 0.) return 0.;
+    double len = Math.sqrt(len2);
+    double fx = (fromLon - aLon) * k[0], fy = (fromLat - aLat) * k[1];
+    double tx = (toLon - aLon) * k[0], ty = (toLat - aLat) * k[1];
+    if (Math.abs(fx * uy - fy * ux) / len > ON_STEP_TOLERANCE_M) return 0.;
+    if (Math.abs(tx * uy - ty * ux) / len > ON_STEP_TOLERANCE_M) return 0.;
+    double tFrom = (fx * ux + fy * uy) / len2;
+    double tTo = (tx * ux + ty * uy) / len2;
+    if (tTo >= tFrom) return 0.; // forward along the trace
+    double overlap = (Math.min(tFrom, 1.) - Math.max(tTo, 0.)) * len;
+    return overlap >= MIN_OVERLAP_M ? overlap : 0.;
   }
 }

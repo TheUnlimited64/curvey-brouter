@@ -106,6 +106,13 @@ public final class RoutingContext {
   static final double DRIVEN_TRACE_MAX_LENGTH_M = 500.;
 
   /**
+   * EXPERIMENT curvey #348: how much of the path before a leg rule R2 looks at, default
+   * {@link #DRIVEN_TRACE_MAX_LENGTH_M}. A roundtrip profile sets it to the whole loop, so a later leg does not ride
+   * back along a road an earlier leg took. Profile variable {@code reversalTraceLengthM}.
+   */
+  public double reversalTraceLengthM;
+
+  /**
    * Default of {@link #reversalCostFactor}. Going back along the path before the leg costs this many times what that
    * road normally costs (distance cost, or time in the kinematic car model): a forward route that costs up to
    * (factor - 1) times the going-back part more is preferred. Chosen with the reroute bench (Curvey
@@ -258,6 +265,7 @@ public final class RoutingContext {
 
     continueStraight = 0.f != expctxGlobal.getVariableValue("continueStraight", 0.f);
     reversalCostFactor = Math.max(1.f, expctxGlobal.getVariableValue("reversalCostFactor", DEFAULT_REVERSAL_COST_FACTOR));
+    reversalTraceLengthM = Math.max(0.f, expctxGlobal.getVariableValue("reversalTraceLengthM", (float) DRIVEN_TRACE_MAX_LENGTH_M));
 
     // process tags not used in the profile (to have them in the data-tab)
     processUnusedTags = 0.f != expctxGlobal.getVariableValue("processUnusedTags", 0.f);

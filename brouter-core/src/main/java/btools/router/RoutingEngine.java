@@ -1214,7 +1214,7 @@ public class RoutingEngine extends Thread {
     if (i > 0) {
       for (OsmPathElement e : routedSoFar.nodes) before.add(new OsmNode(e.getILon(), e.getILat()));
     }
-    return DrivenTrace.tail(before, RoutingContext.DRIVEN_TRACE_MAX_LENGTH_M);
+    return DrivenTrace.tail(before, routingContext.reversalTraceLengthM);
   }
 
   /**
