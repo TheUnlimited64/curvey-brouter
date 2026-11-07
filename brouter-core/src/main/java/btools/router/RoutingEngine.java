@@ -1197,7 +1197,7 @@ public class RoutingEngine extends Thread {
   /**
    * Rule R2 for leg {@code i}: the path before its start, which the leg should not drive back along. The driven
    * trace (reroute start), {@link RoutingContext#arrivedFrom} (a chained segment), or the route so far (a via),
-   * each with what came before it; its last {@link RoutingContext#DRIVEN_TRACE_MAX_LENGTH_M}. Null while R2 is off.
+   * each with what came before it; its last {@link RoutingContext#reversalTraceLengthM}. Null while R2 is off.
    */
   private DrivenTrace reversalTrace(int i, OsmTrack routedSoFar, MatchedWaypoint wp) {
     if (!routingContext.continueStraight || routingContext.allowSamewayback || routingContext.reversalCostFactor <= 1.
@@ -1214,7 +1214,7 @@ public class RoutingEngine extends Thread {
     if (i > 0) {
       for (OsmPathElement e : routedSoFar.nodes) before.add(new OsmNode(e.getILon(), e.getILat()));
     }
-    return DrivenTrace.tail(before, RoutingContext.DRIVEN_TRACE_MAX_LENGTH_M);
+    return DrivenTrace.tail(before, routingContext.reversalTraceLengthM);
   }
 
   /**

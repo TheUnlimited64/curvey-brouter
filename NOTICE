@@ -61,3 +61,7 @@ Changes from upstream (Curvey modifications):
   unchanged) to the way description of each link with a record. Only active when the profile reads the key; no
   file, another format or class table version, a damaged file or a link without a record leave the description
   unchanged, so routes are identical without the tiles (Curvey #344).
+- brouter-core: how far back rule R2 looks is the profile variable `reversalTraceLengthM` (default 500 m, as
+  before). Curvey's roundtrip profile sets it to the whole loop, so a later leg does not ride back along a road an
+  earlier leg took. A long trace indexes its steps in a grid of about 1 km, so each step test stays local
+  (Curvey #348).

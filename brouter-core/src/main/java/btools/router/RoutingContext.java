@@ -100,10 +100,18 @@ public final class RoutingContext {
   public List<TraceObservation> drivenTrace;
 
   /**
-   * Length of the path before a leg that rule R2 looks at: the driven trace, the previous legs, or
-   * {@link #arrivedFrom}. "Back" means the road just driven; older road is just road again.
+   * Default of {@link #reversalTraceLengthM}, and the length of the driven trace kept for a reroute: "back" means
+   * the road just driven; older road is just road again.
    */
   static final double DRIVEN_TRACE_MAX_LENGTH_M = 500.;
+
+  /**
+   * Length of the path before a leg (the driven trace, the previous legs, or {@link #arrivedFrom}) that rule R2
+   * looks at, default {@link #DRIVEN_TRACE_MAX_LENGTH_M}. Curvey's roundtrip profile sets it to the whole loop, so a
+   * later leg does not ride back along a road an earlier leg took (Curvey #348, docs/curvy-roundtrip-bench.md).
+   * Profile variable {@code reversalTraceLengthM}.
+   */
+  public double reversalTraceLengthM;
 
   /**
    * Default of {@link #reversalCostFactor}. Going back along the path before the leg costs this many times what that
@@ -258,6 +266,7 @@ public final class RoutingContext {
 
     continueStraight = 0.f != expctxGlobal.getVariableValue("continueStraight", 0.f);
     reversalCostFactor = Math.max(1.f, expctxGlobal.getVariableValue("reversalCostFactor", DEFAULT_REVERSAL_COST_FACTOR));
+    reversalTraceLengthM = Math.max(0.f, expctxGlobal.getVariableValue("reversalTraceLengthM", (float) DRIVEN_TRACE_MAX_LENGTH_M));
 
     // process tags not used in the profile (to have them in the data-tab)
     processUnusedTags = 0.f != expctxGlobal.getVariableValue("processUnusedTags", 0.f);
