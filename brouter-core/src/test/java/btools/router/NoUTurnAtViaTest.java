@@ -48,6 +48,11 @@ public class NoUTurnAtViaTest {
   }
 
   private RoutingEngine route(double[][] latLon, boolean continueStraight, int[] arrivedFromLonLat, Double reversalCostFactor) {
+    return route(latLon, continueStraight, arrivedFromLonLat, reversalCostFactor, null);
+  }
+
+  private RoutingEngine route(double[][] latLon, boolean continueStraight, int[] arrivedFromLonLat, Double reversalCostFactor,
+                              Double reversalTraceLengthM) {
     List<OsmNodeNamed> wplist = new ArrayList<>();
     for (int i = 0; i < latLon.length; i++) {
       OsmNodeNamed n = new OsmNodeNamed();
@@ -60,6 +65,7 @@ public class NoUTurnAtViaTest {
     rctx.keyValues = new HashMap<>();
     if (continueStraight) rctx.keyValues.put("continueStraight", "1");
     if (reversalCostFactor != null) rctx.keyValues.put("reversalCostFactor", String.valueOf(reversalCostFactor));
+    if (reversalTraceLengthM != null) rctx.keyValues.put("reversalTraceLengthM", String.valueOf(reversalTraceLengthM));
     if (arrivedFromLonLat != null) {
       // one or more lon,lat pairs, oldest first
       rctx.arrivedFrom = new ArrayList<>();
@@ -109,13 +115,18 @@ public class NoUTurnAtViaTest {
    * measured with the engine's own R2 test: a later leg coming back along an earlier one.
    */
   private static double backAlongItself(OsmTrack track) {
+    return backAlongItself(track, RoutingContext.DRIVEN_TRACE_MAX_LENGTH_M);
+  }
+
+  /** Like {@link #backAlongItself(OsmTrack)}, looking back {@code lookBackM} (Curvey #348: a whole loop). */
+  private static double backAlongItself(OsmTrack track, double lookBackM) {
     List<btools.mapaccess.OsmNode> before = new ArrayList<>();
     double back = 0;
     for (int k = 0; k + 1 < track.nodes.size(); k++) {
       OsmPathElement a = track.nodes.get(k);
       OsmPathElement b = track.nodes.get(k + 1);
       before.add(new btools.mapaccess.OsmNode(a.getILon(), a.getILat()));
-      DrivenTrace t = DrivenTrace.tail(before, RoutingContext.DRIVEN_TRACE_MAX_LENGTH_M);
+      DrivenTrace t = DrivenTrace.tail(before, lookBackM);
       if (t != null) back += t.backwardOverlapM(a.getILon(), a.getILat(), b.getILon(), b.getILat());
     }
     return back;
@@ -151,6 +162,39 @@ public class NoUTurnAtViaTest {
       if (after < before - 10.) reduced++;
     }
     Assert.assertTrue("premise: some loop comes back along a previous leg without R2", reduced > 0);
+  }
+
+  /** Profile variable {@code reversalTraceLengthM} that covers any test loop (Curvey #348). */
+  private static final double WHOLE_LOOP_M = 1e7;
+
+  /**
+   * R2 looking back over the whole loop (Curvey #348, roundtrips): never more road ridden back along any earlier leg
+   * than with the default 500 m, and never a failed route or a reversal.
+   */
+  @Test
+  public void lookingBackOverTheWholeLoopNeverRidesBackMore() {
+    for (double[][] loop : REVERSING_LOOPS) {
+      RoutingEngine short500 = route(loop, true, null, null, null);
+      RoutingEngine whole = route(loop, true, null, null, WHOLE_LOOP_M);
+      if (short500.getErrorMessage() != null) continue;
+      Assert.assertNull(whole.getErrorMessage(), whole.getErrorMessage());
+      Assert.assertEquals(0, reversals(whole.getFoundTrack()));
+      double before = backAlongItself(short500.getFoundTrack(), WHOLE_LOOP_M);
+      double after = backAlongItself(whole.getFoundTrack(), WHOLE_LOOP_M);
+      Assert.assertTrue("loop from " + loop[0][0] + ": " + after + " m back, " + before + " m with 500 m", after <= before + 1.);
+    }
+  }
+
+  /** A look-back of 0 m leaves R2 nothing to price: the same route as R2 switched off. */
+  @Test
+  public void aZeroLookBackRoutesLikeR2Off() {
+    for (double[][] loop : REVERSING_LOOPS) {
+      RoutingEngine off = route(loop, true, null, 1., null);
+      RoutingEngine zero = route(loop, true, null, null, 0.);
+      if (off.getErrorMessage() != null) continue;
+      Assert.assertEquals(off.getFoundTrack().nodes.size(), zero.getFoundTrack().nodes.size());
+      Assert.assertEquals(off.getFoundTrack().distance, zero.getFoundTrack().distance);
+    }
   }
 
   /**
