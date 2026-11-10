@@ -53,3 +53,11 @@ Changes from upstream (Curvey modifications):
   `JsFileSystem` serves `RandomAccessFile` reads from `globalThis.brouterFs`; `WebRouter` runs one request
   like Curvey's Android embedded engine. Browser replacements for `StackSampler` and `BuildVersion`. Only
   included in standalone builds, not when Curvey's Android app includes this repository.
+- brouter-core/codec/mapaccess: optional curvature tiles next to the routing tiles (`E10_N50.curv` next to
+  `E10_N50.rd5`, format version 1 from Curvey's curvature pipeline, spec in Curvey's `docs/curvature-tiles.md`).
+  `CurvatureTiles` reads them per cell with `RandomAccessFile` (also in the browser build); a new `LinkTagHook`
+  (`DataBuffers.linkTagHook`, `NodesCache.setLinkTagHook`, called by `DirectWeaver`) adds the pseudo-tag
+  `curvey_curve_class` (straight, gentle, moderate, curvy, twisty; appended to `lookups.dat`, lookupversion
+  unchanged) to the way description of each link with a record. Only active when the profile reads the key; no
+  file, another format or class table version, a damaged file or a link without a record leave the description
+  unchanged, so routes are identical without the tiles (Curvey #344).

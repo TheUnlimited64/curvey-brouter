@@ -15,6 +15,8 @@ public final class DataBuffers {
   public int[] ibuf3 = new int[2048];
   public int[] alon = new int[2048];
   public int[] alat = new int[2048];
+  /** Curvey: optional per-link description hook used while cells are woven, see {@link LinkTagHook}. */
+  public LinkTagHook linkTagHook;
 
   public DataBuffers() {
     this(new byte[65636]);

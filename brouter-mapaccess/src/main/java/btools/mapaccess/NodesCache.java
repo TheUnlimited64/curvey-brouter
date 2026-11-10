@@ -57,6 +57,14 @@ public final class NodesCache {
 
   private boolean directWeaving = !Boolean.getBoolean("disableDirectWeaving");
 
+  /**
+   * Curvey: per-link description hook used while cells are woven (direct weaving only, the default); null removes
+   * it.
+   */
+  public void setLinkTagHook(btools.codec.LinkTagHook hook) {
+    dataBuffers.linkTagHook = hook;
+  }
+
   public String formatStatus() {
     return "collecting=" + garbageCollectionEnabled + " noGhosts=" + ghostCleaningDone + " cacheSum=" + cacheSum + " cacheSumClean=" + cacheSumClean + " ghostSum=" + ghostSum + " ghostWakeup=" + ghostWakeup;
   }
