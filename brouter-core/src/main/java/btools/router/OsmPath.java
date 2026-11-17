@@ -333,21 +333,30 @@ abstract class OsmPath implements OsmLinkHolder {
         return;
       }
 
-      // rule R2 (#204): going back along the path driven before this leg costs extra, nothing else does
-      if (rc.reversalTrace != null) {
+      if (rc.reversalTrace != null || rc.referenceTrack != null) {
         int stepLon2 = stopAtEndpoint ? rc.ilonshortest : lon2;
         int stepLat2 = stopAtEndpoint ? rc.ilatshortest : lat2;
-        double back = rc.reversalTrace.backwardOverlapM(stepLon1, stepLat1, stepLon2, stepLat2);
-        if (back > 0.) {
-          // the overlapping share of what this step really costs: costfactor x distance in a classic profile, but
-          // time in the kinematic (car) model, where costfactor is only an add-on penalty and mostly 0
-          double stepLen = btools.util.CheapRuler.distance(stepLon1, stepLat1, stepLon2, stepLat2);
-          double share = stepLen > 0. ? Math.min(1., back / stepLen) : 1.;
-          sectionCost += sectionCost * share * (rc.reversalCostFactor - 1.);
-          if (sectionCost + cost >= 2000000000.) {
-            cost = -1;
-            return;
+        double stepLen = btools.util.CheapRuler.distance(stepLon1, stepLat1, stepLon2, stepLat2);
+        // rule R2 (#204): going back along the path driven before this leg costs extra, nothing else does
+        if (rc.reversalTrace != null) {
+          double back = rc.reversalTrace.backwardOverlapM(stepLon1, stepLat1, stepLon2, stepLat2);
+          if (back > 0.) {
+            // the overlapping share of what this step really costs: costfactor x distance in a classic profile, but
+            // time in the kinematic (car) model, where costfactor is only an add-on penalty and mostly 0
+            double share = stepLen > 0. ? Math.min(1., back / stepLen) : 1.;
+            sectionCost += sectionCost * share * (rc.reversalCostFactor - 1.);
           }
+        }
+        // Curvey #458: while the leg follows a reference track, the part of this step off it costs extra
+        if (rc.referenceTrack != null && stepLen > 0.) {
+          double off = 1. - rc.referenceTrack.alongM(stepLon1, stepLat1, stepLon2, stepLat2) / stepLen;
+          if (off > 0.) {
+            sectionCost += sectionCost * off * (rc.referenceDeviationCostFactor - 1.);
+          }
+        }
+        if (sectionCost + cost >= 2000000000.) {
+          cost = -1;
+          return;
         }
       }
 
