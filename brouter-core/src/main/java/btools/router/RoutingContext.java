@@ -132,6 +132,34 @@ public final class RoutingContext {
   DrivenTrace reversalTrace;
 
   /**
+   * A line the route should follow in its direction, oldest first (Curvey #458): the old route played the other way
+   * round when the rider reverses it. A leg whose start and end both lie on it, the end after the start, follows it
+   * where access and traffic rules allow ({@link ReferenceTrack}); other legs route as without it.
+   * Request key {@code referencetrack=lon,lat|lon,lat|...}.
+   */
+  public List<OsmNode> referenceTrackPositions;
+
+  /**
+   * Default of {@link #referenceDeviationCostFactor}. A detour off the line is preferred only when riding the line
+   * costs more than this many times the detour; profiles and directions differ by less (a profile tuned for curves
+   * prices a straight road up to about 5 times a twisty one), so the route stays on the line unless a rule makes it
+   * leave. Higher factors keep little more of the line and make BRouter's detailed re-track fail more often (then
+   * the leg is routed without the line). Chosen with Curvey's reverse bench (Curvey's docs/routing-engine.md,
+   * "Reverse along the old roads").
+   */
+  static final float DEFAULT_REFERENCE_DEVIATION_COST_FACTOR = 10.f;
+
+  /**
+   * The part of a route step off {@link #referenceTrackPositions} costs this many times its normal cost (distance
+   * cost, or time in the kinematic car model), while the leg follows the line.
+   * Profile variable {@code referenceDeviationCostFactor}; 1 switches the line off.
+   */
+  public double referenceDeviationCostFactor;
+
+  /** The line the current leg follows, set per leg by the engine; null while the leg does not follow one. */
+  ReferenceTrack referenceTrack;
+
+  /**
    * Hard no-U-turn guard for the start of a leg ({@link #continueStraight}).
    * While active, a path leaving the leg's start waypoint (xLon/xLat) must not take its first
    * step to the position the previous leg arrived from (pLon/pLat), i.e. must not retrace the
@@ -267,6 +295,8 @@ public final class RoutingContext {
     continueStraight = 0.f != expctxGlobal.getVariableValue("continueStraight", 0.f);
     reversalCostFactor = Math.max(1.f, expctxGlobal.getVariableValue("reversalCostFactor", DEFAULT_REVERSAL_COST_FACTOR));
     reversalTraceLengthM = Math.max(0.f, expctxGlobal.getVariableValue("reversalTraceLengthM", (float) DRIVEN_TRACE_MAX_LENGTH_M));
+    referenceDeviationCostFactor = Math.max(1.f,
+      expctxGlobal.getVariableValue("referenceDeviationCostFactor", DEFAULT_REFERENCE_DEVIATION_COST_FACTOR));
 
     // process tags not used in the profile (to have them in the data-tab)
     processUnusedTags = 0.f != expctxGlobal.getVariableValue("processUnusedTags", 0.f);

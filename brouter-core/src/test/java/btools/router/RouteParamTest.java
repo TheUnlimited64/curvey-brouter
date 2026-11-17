@@ -101,4 +101,46 @@ public class RouteParamTest {
       Assert.assertEquals(wps.get(i).ilat, rc.arrivedFrom.get(i).ilat);
     }
   }
+
+  /** Curvey #458: the line to follow, in its order, in the waypoints' encoding. */
+  @Test
+  public void referenceTrackIsReadInItsOrder() {
+    RoutingParamCollector rpc = new RoutingParamCollector();
+    Map<String, String> params = new HashMap<>();
+    params.put("referencetrack", "8.3,49.3|8.2,49.2|-0.000001,0.000001");
+    RoutingContext rc = new RoutingContext();
+    rpc.setParams(rc, null, params);
+    List<OsmNodeNamed> wps = rpc.getWayPointList("8.3,49.3;8.2,49.2;-0.000001,0.000001");
+
+    Assert.assertEquals(3, rc.referenceTrackPositions.size());
+    for (int i = 0; i < 3; i++) {
+      Assert.assertEquals(wps.get(i).ilon, rc.referenceTrackPositions.get(i).ilon);
+      Assert.assertEquals(wps.get(i).ilat, rc.referenceTrackPositions.get(i).ilat);
+    }
+  }
+
+  @Test
+  public void positionListsSkipMalformedEntries() {
+    RoutingParamCollector rpc = new RoutingParamCollector();
+    Map<String, String> params = new HashMap<>();
+    params.put("referencetrack", "8.1,49.1|x,49.2|8.3|8.4,49.4,1|8.5,49.5");
+    params.put("arrivedfrom", "a,b|8.6,49.6");
+    RoutingContext rc = new RoutingContext();
+    rpc.setParams(rc, null, params);
+
+    Assert.assertEquals(2, rc.referenceTrackPositions.size());
+    Assert.assertEquals(rpc.getWayPointList("8.5,49.5;0,0").get(0).ilon, rc.referenceTrackPositions.get(1).ilon);
+    Assert.assertEquals(1, rc.arrivedFrom.size());
+  }
+
+  @Test
+  public void aReferenceTrackOfNothingIsNone() {
+    RoutingParamCollector rpc = new RoutingParamCollector();
+    Map<String, String> params = new HashMap<>();
+    params.put("referencetrack", "x,y");
+    RoutingContext rc = new RoutingContext();
+    rpc.setParams(rc, null, params);
+
+    Assert.assertNull(rc.referenceTrackPositions);
+  }
 }

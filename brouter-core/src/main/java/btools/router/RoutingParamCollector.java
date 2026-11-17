@@ -197,6 +197,8 @@ public class RoutingParamCollector {
           rctx.arrivedFrom = readPositionList(value);
         } else if (key.equals("driventrace")) {
           rctx.drivenTrace = readTraceObservations(value);
+        } else if (key.equals("referencetrack")) {
+          rctx.referenceTrackPositions = readPositionList(value);
         } else if (key.equals("straight")) {
           try {
             String[] sa = value.split(",");
@@ -336,11 +338,14 @@ public class RoutingParamCollector {
     List<OsmNode> positions = new ArrayList<>();
     for (String lonlat : value.split("\\|")) {
       String[] ll = lonlat.split(",");
-      if (ll.length == 2) {
+      if (ll.length != 2) continue;
+      try {
         // same offset-then-round as waypoints: rounding before the offset is off by one west/south of 0
         positions.add(new OsmNode(
           (int) ((Double.parseDouble(ll[0]) + 180.) * 1000000. + 0.5),
           (int) ((Double.parseDouble(ll[1]) + 90.) * 1000000. + 0.5)));
+      } catch (NumberFormatException e) {
+        // skipped like any malformed entry
       }
     }
     return positions.isEmpty() ? null : positions;
