@@ -1071,6 +1071,10 @@ public class RoutingEngine extends Thread {
         routingContext.reversalTrace = reversalTrace(i, totaltrack, matchedWaypoints.get(i));
         routingContext.referenceTrack = referenceTrackFor(i, matchedWaypoints.get(i), matchedWaypoints.get(i + 1));
         routingContext.avoidTrack = avoidTrackFor(matchedWaypoints.get(i));
+        // Curvey #466: a reroute coming back onto the plan prices going back along the road just driven higher
+        boolean joining = fromDrivenTrace && routingContext.referenceJoin && routingContext.referenceTrack != null;
+        routingContext.legReversalCostFactor = joining
+          ? routingContext.referenceJoinReversalCostFactor : routingContext.reversalCostFactor;
         OsmTrack nearby = i == matchedWaypoints.size() - 2 ? nearbyTrack : null;
         try {
           seg = searchLeg(matchedWaypoints.get(i), matchedWaypoints.get(i + 1), nearby, refTracks[i]);
@@ -1088,6 +1092,7 @@ public class RoutingEngine extends Thread {
           routingContext.reversalTrace = null;
           routingContext.referenceTrack = null;
           routingContext.avoidTrack = null;
+          routingContext.legReversalCostFactor = routingContext.reversalCostFactor;
         }
         wptIndex = i;
       }

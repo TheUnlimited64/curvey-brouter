@@ -344,7 +344,7 @@ abstract class OsmPath implements OsmLinkHolder {
             // the overlapping share of what this step really costs: costfactor x distance in a classic profile, but
             // time in the kinematic (car) model, where costfactor is only an add-on penalty and mostly 0
             double share = stepLen > 0. ? Math.min(1., back / stepLen) : 1.;
-            sectionCost += sectionCost * share * (rc.reversalCostFactor - 1.);
+            sectionCost += sectionCost * share * (rc.legReversalCostFactor - 1.);
           }
         }
         // Curvey #458: while the leg follows a reference track, the part of this step off it costs extra

@@ -132,6 +132,26 @@ public final class RoutingContext {
   DrivenTrace reversalTrace;
 
   /**
+   * Default of {@link #referenceJoinReversalCostFactor}. A reroute that comes back onto the plan pays the line's
+   * surcharge ({@link #referenceDeviationCostFactor}) on every way off it, the way back the rider came included, so the
+   * plain R2 factor makes turning back onto the plan behind the rider much cheaper than a way on: the rider's own road
+   * costs the surcharge too. Chosen with Curvey's reroute bench (Curvey's docs/routing-engine.md, "Reroute back onto
+   * the plan"): turning back happens only when every way on costs many times more.
+   */
+  static final float DEFAULT_REFERENCE_JOIN_REVERSAL_COST_FACTOR = 200.f;
+
+  /**
+   * Curvey #466, rule R2 at a reroute start that comes back onto the plan ({@link #referenceJoin}, the first leg with
+   * a driven trace and a line): the part of a route step that runs backwards along the driven trace costs this many
+   * times its cost instead of {@link #reversalCostFactor} (never less). Other legs and requests keep
+   * {@link #reversalCostFactor}. Profile variable {@code referenceJoinReversalCostFactor}.
+   */
+  public double referenceJoinReversalCostFactor;
+
+  /** The R2 factor of the current leg ({@link #reversalCostFactor}, or the join's), set per leg by the engine. */
+  double legReversalCostFactor;
+
+  /**
    * A line the route should follow in its direction, oldest first (Curvey #458): the old route played the other way
    * round when the rider reverses it. A leg whose start and end both lie on it, the end after the start, follows it
    * where access and traffic rules allow ({@link ReferenceTrack}); other legs route as without it.
@@ -334,6 +354,9 @@ public final class RoutingContext {
     continueStraight = 0.f != expctxGlobal.getVariableValue("continueStraight", 0.f);
     reversalCostFactor = Math.max(1.f, expctxGlobal.getVariableValue("reversalCostFactor", DEFAULT_REVERSAL_COST_FACTOR));
     reversalTraceLengthM = Math.max(0.f, expctxGlobal.getVariableValue("reversalTraceLengthM", (float) DRIVEN_TRACE_MAX_LENGTH_M));
+    referenceJoinReversalCostFactor = Math.max(reversalCostFactor,
+      expctxGlobal.getVariableValue("referenceJoinReversalCostFactor", DEFAULT_REFERENCE_JOIN_REVERSAL_COST_FACTOR));
+    legReversalCostFactor = reversalCostFactor;
     referenceDeviationCostFactor = Math.max(1.f,
       expctxGlobal.getVariableValue("referenceDeviationCostFactor", DEFAULT_REFERENCE_DEVIATION_COST_FACTOR));
     avoidedTrackCostFactor = Math.max(1.f,
