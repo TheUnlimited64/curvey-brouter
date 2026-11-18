@@ -199,6 +199,10 @@ public class RoutingParamCollector {
           rctx.drivenTrace = readTraceObservations(value);
         } else if (key.equals("referencetrack")) {
           rctx.referenceTrackPositions = readPositionList(value);
+        } else if (key.equals("referencejoin")) {
+          rctx.referenceJoin = "1".equals(value) || "true".equals(value);
+        } else if (key.equals("avoidtrack")) {
+          rctx.avoidTrackPositions = readPositionList(value);
         } else if (key.equals("straight")) {
           try {
             String[] sa = value.split(",");

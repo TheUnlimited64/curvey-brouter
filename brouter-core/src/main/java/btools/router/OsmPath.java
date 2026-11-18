@@ -333,7 +333,7 @@ abstract class OsmPath implements OsmLinkHolder {
         return;
       }
 
-      if (rc.reversalTrace != null || rc.referenceTrack != null) {
+      if (rc.reversalTrace != null || rc.referenceTrack != null || rc.avoidTrack != null) {
         int stepLon2 = stopAtEndpoint ? rc.ilonshortest : lon2;
         int stepLat2 = stopAtEndpoint ? rc.ilatshortest : lat2;
         double stepLen = btools.util.CheapRuler.distance(stepLon1, stepLat1, stepLon2, stepLat2);
@@ -352,6 +352,17 @@ abstract class OsmPath implements OsmLinkHolder {
           double off = 1. - rc.referenceTrack.alongM(stepLon1, stepLat1, stepLon2, stepLat2) / stepLen;
           if (off > 0.) {
             sectionCost += sectionCost * off * (rc.referenceDeviationCostFactor - 1.);
+          }
+        }
+        // Curvey #466: the part of this step along the stretch the rider turned away from costs extra, either way
+        if (rc.avoidTrack != null && stepLen > 0.) {
+          double along = Math.min(stepLen, rc.avoidTrack.alongEitherWayM(stepLon1, stepLat1, stepLon2, stepLat2));
+          if (rc.avoidedTrackClosed && along > 0.5 * stepLen) {
+            cost = -1;
+            return;
+          }
+          if (along > 0. && !rc.avoidedTrackClosed) {
+            sectionCost += sectionCost * (along / stepLen) * (rc.avoidedTrackCostFactor - 1.);
           }
         }
         if (sectionCost + cost >= 2000000000.) {

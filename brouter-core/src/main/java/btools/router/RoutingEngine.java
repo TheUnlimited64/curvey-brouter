@@ -1070,6 +1070,7 @@ public class RoutingEngine extends Thread {
         }
         routingContext.reversalTrace = reversalTrace(i, totaltrack, matchedWaypoints.get(i));
         routingContext.referenceTrack = referenceTrackFor(i, matchedWaypoints.get(i), matchedWaypoints.get(i + 1));
+        routingContext.avoidTrack = avoidTrackFor(matchedWaypoints.get(i));
         OsmTrack nearby = i == matchedWaypoints.size() - 2 ? nearbyTrack : null;
         try {
           seg = searchLeg(matchedWaypoints.get(i), matchedWaypoints.get(i + 1), nearby, refTracks[i]);
@@ -1086,6 +1087,7 @@ public class RoutingEngine extends Thread {
           routingContext.reverseGuardActive = false;
           routingContext.reversalTrace = null;
           routingContext.referenceTrack = null;
+          routingContext.avoidTrack = null;
         }
         wptIndex = i;
       }
@@ -1139,7 +1141,8 @@ public class RoutingEngine extends Thread {
    * back along the route so far runs against the track, so the track alone keeps the route from it. If the search
    * fails with one of them, the leg is searched again without it. Not after a stop (timeout, kill: a rerun would only
    * double the wait), and not for an unreachable waypoint or the R1 dead-end signal, which say something about the
-   * request, not about the costs.
+   * request, not about the costs. The stretch to avoid (Curvey #466, {@link RoutingContext#avoidTrackPositions}) is
+   * the rider's evidence of a closed road and goes last: R2 first, then the reference track, then the stretch.
    */
   private OsmTrack searchLeg(MatchedWaypoint from, MatchedWaypoint to, OsmTrack nearby, OsmTrack ref) {
     while (true) {
@@ -1149,7 +1152,8 @@ public class RoutingEngine extends Thread {
         throw e;
       } catch (IllegalArgumentException e) {
         String message = e.getMessage();
-        boolean softCosts = routingContext.reversalTrace != null || routingContext.referenceTrack != null;
+        boolean softCosts = routingContext.reversalTrace != null || routingContext.referenceTrack != null
+          || routingContext.avoidTrack != null;
         if (!softCosts || terminated || message != null && message.contains(" timeout after ")) {
           throw e;
         }
@@ -1157,6 +1161,13 @@ public class RoutingEngine extends Thread {
           logInfo("search failed with the reversal cost along the reference track (" + message
             + "), searching along it without the reversal cost");
           routingContext.reversalTrace = null;
+        } else if (routingContext.reversalTrace != null && routingContext.avoidTrack != null) {
+          logInfo("search failed with the reversal cost (" + message + "), searching without it");
+          routingContext.reversalTrace = null;
+        } else if (routingContext.referenceTrack != null && routingContext.avoidTrack != null) {
+          // the stretch to avoid is the rider's evidence (a closed road): it is the last soft cost to go
+          logInfo("search failed along the reference track (" + message + "), searching without it");
+          routingContext.referenceTrack = null;
         } else {
           if (routingContext.reversalTrace != null) {
             logInfo("search failed with the reversal cost (" + message + "), searching without it");
@@ -1164,8 +1175,12 @@ public class RoutingEngine extends Thread {
           if (routingContext.referenceTrack != null) {
             logInfo("search failed along the reference track (" + message + "), searching without it");
           }
+          if (routingContext.avoidTrack != null) {
+            logInfo("search failed away from the avoided track (" + message + "), searching without it");
+          }
           routingContext.reversalTrace = null;
           routingContext.referenceTrack = null;
+          routingContext.avoidTrack = null;
         }
         startTime = System.currentTimeMillis(); // fresh time budget for the rerun
       }
@@ -1183,6 +1198,8 @@ public class RoutingEngine extends Thread {
    * at a stop with {@code continueStraight}), it may come back on the old roads of another leg.
    * A leg from elsewhere to the line (the rider's position before an old route) is routed as without it; it would
    * run against the line, which costs the same everywhere and only slows the search. Not for straight-line legs.
+   * Exception (Curvey #466, {@link RoutingContext#referenceJoin}): a reroute's first leg starts where the rider is,
+   * off the line, and follows it when its end lies on it; the line's cost brings the route back onto it.
    */
   private ReferenceTrack referenceTrackFor(int i, MatchedWaypoint from, MatchedWaypoint to) {
     if (!referenceTrackBuilt) {
@@ -1198,6 +1215,12 @@ public class RoutingEngine extends Thread {
     }
     double[] start = referenceTrack.passesNear(from.crosspoint.ilon, from.crosspoint.ilat);
     double[] end = referenceTrack.passesNear(to.crosspoint.ilon, to.crosspoint.ilat);
+    if (i == 0 && routingContext.referenceJoin && end != null && (start == null || end[1] <= start[0])) {
+      // Curvey #466: a reroute from where the rider is: the leg comes back to the line (wherever the costs say) and
+      // follows it to its end; until then every step is off the line
+      logInfo("reference track: leg 0 starts off it and joins it before " + (int) end[1] + " m");
+      return referenceTrack;
+    }
     if (start == null || end == null || end[1] <= start[0]) {
       logInfo("reference track: leg " + i + " does not run along it (" + (start == null ? "start off it" : end == null
         ? "end off it" : "end before start") + ")");
@@ -1205,6 +1228,29 @@ public class RoutingEngine extends Thread {
     }
     logInfo("reference track: leg " + i + " follows it from " + (int) start[0] + " to " + (int) end[1] + " m");
     return referenceTrack;
+  }
+
+  /** The line of {@link RoutingContext#avoidTrackPositions} (Curvey #466), built once per request. */
+  private ReferenceTrack avoidTrack;
+  private boolean avoidTrackBuilt;
+
+  /**
+   * The stretch every leg keeps away from ({@link RoutingContext#avoidTrackPositions}), or null: none, a factor of 1,
+   * or a straight-line leg. It applies to every leg, not only the first: a closed road stays closed.
+   */
+  private ReferenceTrack avoidTrackFor(MatchedWaypoint from) {
+    if (!avoidTrackBuilt) {
+      avoidTrackBuilt = true;
+      avoidTrack = ReferenceTrack.of(routingContext.avoidTrackPositions);
+      if (avoidTrack != null) {
+        logInfo("avoided track: " + avoidTrack.size() + " positions, " + (int) avoidTrack.lengthM() + " m");
+      }
+    }
+    if (avoidTrack == null || routingContext.avoidedTrackCostFactor <= 1.
+      || from.wpttype == MatchedWaypoint.WAYPOINT_TYPE_DIRECT || from.wpttype == MatchedWaypoint.WAYPOINT_TYPE_MEETING) {
+      return null;
+    }
+    return avoidTrack;
   }
 
   private DrivenTraceMatcher.Match matchDrivenTrace(MatchedWaypoint start) {

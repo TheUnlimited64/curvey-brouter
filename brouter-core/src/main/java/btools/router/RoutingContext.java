@@ -160,6 +160,45 @@ public final class RoutingContext {
   ReferenceTrack referenceTrack;
 
   /**
+   * Curvey #466: the request starts where the vehicle is, off {@link #referenceTrackPositions} (a reroute after the
+   * rider left the planned route): its first leg comes back to the line and follows it when its end lies on the line,
+   * wherever its start lies. Without it such a leg is routed as without the line (#458).
+   * Request key {@code referencejoin=1}.
+   */
+  public boolean referenceJoin;
+
+  /**
+   * Curvey #466: a stretch of road the rider turned away from (the planned route just past where they left it: a
+   * closed road, or a turn they did not want), oldest first. The part of a route step that runs along it, in either
+   * direction, costs {@link #avoidedTrackCostFactor} times its cost, on every leg; crossing it costs nothing extra.
+   * Request key {@code avoidtrack=lon,lat|lon,lat|...}.
+   */
+  public List<OsmNode> avoidTrackPositions;
+
+  /**
+   * Default of {@link #avoidedTrackCostFactor}: on top of the reference track's own surcharge, so riding the stretch
+   * costs as much as a detour of ten times its length off the line. Chosen with Curvey's reroute bench
+   * (Curvey's docs/routing-engine.md, "Reroute back onto the plan").
+   */
+  static final float DEFAULT_AVOIDED_TRACK_COST_FACTOR = 10.f;
+
+  /**
+   * The part of a route step along {@link #avoidTrackPositions} costs this many times its cost.
+   * Profile variable {@code avoidedTrackCostFactor}; 1 switches it off.
+   */
+  public double avoidedTrackCostFactor;
+
+  /**
+   * Curvey #466: the stretch of {@link #avoidTrackPositions} is closed instead of costly: a step that runs along it for
+   * more than half its length (either way) is not taken at all, like a road behind a no-go. A leg that then has no
+   * route is searched again without the stretch. Profile variable {@code avoidedTrackClosed}; 0 (default) = a cost.
+   */
+  public boolean avoidedTrackClosed;
+
+  /** The stretch to avoid, set per leg by the engine; null without one. */
+  ReferenceTrack avoidTrack;
+
+  /**
    * Hard no-U-turn guard for the start of a leg ({@link #continueStraight}).
    * While active, a path leaving the leg's start waypoint (xLon/xLat) must not take its first
    * step to the position the previous leg arrived from (pLon/pLat), i.e. must not retrace the
@@ -297,6 +336,9 @@ public final class RoutingContext {
     reversalTraceLengthM = Math.max(0.f, expctxGlobal.getVariableValue("reversalTraceLengthM", (float) DRIVEN_TRACE_MAX_LENGTH_M));
     referenceDeviationCostFactor = Math.max(1.f,
       expctxGlobal.getVariableValue("referenceDeviationCostFactor", DEFAULT_REFERENCE_DEVIATION_COST_FACTOR));
+    avoidedTrackCostFactor = Math.max(1.f,
+      expctxGlobal.getVariableValue("avoidedTrackCostFactor", DEFAULT_AVOIDED_TRACK_COST_FACTOR));
+    avoidedTrackClosed = 0.f != expctxGlobal.getVariableValue("avoidedTrackClosed", 0.f);
 
     // process tags not used in the profile (to have them in the data-tab)
     processUnusedTags = 0.f != expctxGlobal.getVariableValue("processUnusedTags", 0.f);
