@@ -65,3 +65,11 @@ Changes from upstream (Curvey modifications):
   before). Curvey's roundtrip profile sets it to the whole loop, so a later leg does not ride back along a road an
   earlier leg took. A long trace indexes its steps in a grid of about 1 km, so each step test stays local
   (Curvey #348).
+- brouter-core: request key `referencetrack` (`lon,lat|lon,lat|...`, in riding order): a route to follow, such as
+  Curvey's old route played backwards when the rider reverses it. The share of a search step that does not run
+  along the track (within 30 m of it, at most 30 degrees from its direction; `ReferenceTrack`) costs
+  `referenceDeviationCostFactor` times its normal cost (profile variable, default 10, 1 = off). A surcharge, never
+  a discount, so the A* estimate stays admissible. It applies only to a leg whose both ends lie on the track with
+  the end after the start (`RoutingEngine.referenceTrackFor`); other legs, and requests without the key, route as
+  before. A leg whose search fails with the track and R2 is searched again along the track without R2, then, like a
+  leg that fails with one of them, without both (`searchLeg`) (Curvey #458).

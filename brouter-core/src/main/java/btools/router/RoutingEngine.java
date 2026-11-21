@@ -1069,6 +1069,7 @@ public class RoutingEngine extends Thread {
           setReverseGuard(totaltrack, matchedWaypoints.get(i));
         }
         routingContext.reversalTrace = reversalTrace(i, totaltrack, matchedWaypoints.get(i));
+        routingContext.referenceTrack = referenceTrackFor(i, matchedWaypoints.get(i), matchedWaypoints.get(i + 1));
         OsmTrack nearby = i == matchedWaypoints.size() - 2 ? nearbyTrack : null;
         try {
           seg = searchLeg(matchedWaypoints.get(i), matchedWaypoints.get(i + 1), nearby, refTracks[i]);
@@ -1084,6 +1085,7 @@ public class RoutingEngine extends Thread {
         } finally {
           routingContext.reverseGuardActive = false;
           routingContext.reversalTrace = null;
+          routingContext.referenceTrack = null;
         }
         wptIndex = i;
       }
@@ -1130,28 +1132,79 @@ public class RoutingEngine extends Thread {
    * unchanged) when there is no trace, the rule is off, or the start cannot be placed on a road.
    */
   /**
-   * {@link #searchTrack} for one leg, keeping rule R2 a preference that never makes a leg fail. The reversal cost
-   * changes costs near the leg start, and BRouter's search builds on cost assumptions it can then break (a
-   * cost-cutting merge, link dominance in the detailed re-track: "error re-tracking track" on a route that exists).
-   * If the search fails while R2 is on, the leg is searched again without it. Not after a stop (timeout, kill:
-   * a rerun would only double the wait), and not for an unreachable waypoint or the R1 dead-end signal, which say
-   * something about the request, not about R2.
+   * {@link #searchTrack} for one leg, keeping rule R2 and the reference track (Curvey #458) preferences that never
+   * make a leg fail. Their costs depend on where a step runs, and BRouter's search builds on cost assumptions it can
+   * then break (a cost-cutting merge, link dominance in the detailed re-track: "error re-tracking track" on a route
+   * that exists). If the search fails while both are on, the leg is searched again along the track without R2: riding
+   * back along the route so far runs against the track, so the track alone keeps the route from it. If the search
+   * fails with one of them, the leg is searched again without it. Not after a stop (timeout, kill: a rerun would only
+   * double the wait), and not for an unreachable waypoint or the R1 dead-end signal, which say something about the
+   * request, not about the costs.
    */
   private OsmTrack searchLeg(MatchedWaypoint from, MatchedWaypoint to, OsmTrack nearby, OsmTrack ref) {
-    try {
-      return searchTrack(from, to, nearby, ref);
-    } catch (ReverseGuardBlockedException | UnreachableWaypointException e) {
-      throw e;
-    } catch (IllegalArgumentException e) {
-      String message = e.getMessage();
-      if (routingContext.reversalTrace == null || terminated || message != null && message.contains(" timeout after ")) {
+    while (true) {
+      try {
+        return searchTrack(from, to, nearby, ref);
+      } catch (ReverseGuardBlockedException | UnreachableWaypointException e) {
         throw e;
+      } catch (IllegalArgumentException e) {
+        String message = e.getMessage();
+        boolean softCosts = routingContext.reversalTrace != null || routingContext.referenceTrack != null;
+        if (!softCosts || terminated || message != null && message.contains(" timeout after ")) {
+          throw e;
+        }
+        if (routingContext.reversalTrace != null && routingContext.referenceTrack != null) {
+          logInfo("search failed with the reversal cost along the reference track (" + message
+            + "), searching along it without the reversal cost");
+          routingContext.reversalTrace = null;
+        } else {
+          if (routingContext.reversalTrace != null) {
+            logInfo("search failed with the reversal cost (" + message + "), searching without it");
+          }
+          if (routingContext.referenceTrack != null) {
+            logInfo("search failed along the reference track (" + message + "), searching without it");
+          }
+          routingContext.reversalTrace = null;
+          routingContext.referenceTrack = null;
+        }
+        startTime = System.currentTimeMillis(); // fresh time budget for the rerun
       }
-      logInfo("search failed with the reversal cost (" + message + "), searching without it");
-      routingContext.reversalTrace = null;
-      startTime = System.currentTimeMillis(); // fresh time budget for the rerun
-      return searchTrack(from, to, nearby, ref);
     }
+  }
+
+  /** The line of {@link RoutingContext#referenceTrackPositions} (Curvey #458), built once per request. */
+  private ReferenceTrack referenceTrack;
+  private boolean referenceTrackBuilt;
+
+  /**
+   * The reference track leg {@code i} follows ({@link ReferenceTrack}), or null. A leg follows it only when its start
+   * and its end both lie on the line, the end after the start: the old route's stops do, played the other way round.
+   * Any part of the line counts, not only the one between them: where a rule forces the leg off its own part (a turn
+   * at a stop with {@code continueStraight}), it may come back on the old roads of another leg.
+   * A leg from elsewhere to the line (the rider's position before an old route) is routed as without it; it would
+   * run against the line, which costs the same everywhere and only slows the search. Not for straight-line legs.
+   */
+  private ReferenceTrack referenceTrackFor(int i, MatchedWaypoint from, MatchedWaypoint to) {
+    if (!referenceTrackBuilt) {
+      referenceTrackBuilt = true;
+      referenceTrack = ReferenceTrack.of(routingContext.referenceTrackPositions);
+      if (referenceTrack != null) {
+        logInfo("reference track: " + referenceTrack.size() + " positions, " + (int) referenceTrack.lengthM() + " m");
+      }
+    }
+    if (referenceTrack == null || routingContext.referenceDeviationCostFactor <= 1.
+      || from.wpttype == MatchedWaypoint.WAYPOINT_TYPE_DIRECT || from.wpttype == MatchedWaypoint.WAYPOINT_TYPE_MEETING) {
+      return null;
+    }
+    double[] start = referenceTrack.passesNear(from.crosspoint.ilon, from.crosspoint.ilat);
+    double[] end = referenceTrack.passesNear(to.crosspoint.ilon, to.crosspoint.ilat);
+    if (start == null || end == null || end[1] <= start[0]) {
+      logInfo("reference track: leg " + i + " does not run along it (" + (start == null ? "start off it" : end == null
+        ? "end off it" : "end before start") + ")");
+      return null;
+    }
+    logInfo("reference track: leg " + i + " follows it from " + (int) start[0] + " to " + (int) end[1] + " m");
+    return referenceTrack;
   }
 
   private DrivenTraceMatcher.Match matchDrivenTrace(MatchedWaypoint start) {
