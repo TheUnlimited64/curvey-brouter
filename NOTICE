@@ -73,3 +73,14 @@ Changes from upstream (Curvey modifications):
   the end after the start (`RoutingEngine.referenceTrackFor`); other legs, and requests without the key, route as
   before. A leg whose search fails with the track and R2 is searched again along the track without R2, then, like a
   leg that fails with one of them, without both (`searchLeg`) (Curvey #458).
+- brouter-core: request key `referencejoin=1` with `referencetrack`: the first leg may start off the track (a reroute
+  from where the vehicle is) and comes back onto it where the costs say, as long as its end lies on the track
+  (`RoutingEngine.referenceTrackFor`); without the key such a leg ignores the track, as before. On that leg rule R2
+  costs `referenceJoinReversalCostFactor` times a step's cost instead of `reversalCostFactor` (profile variable,
+  default 200, never below `reversalCostFactor`): the track's surcharge off it would otherwise make turning back onto
+  it along the driven trace the cheapest way. Requests without the key route as before (Curvey #466).
+- brouter-core: request key `avoidtrack=lon,lat|...`: a stretch the route keeps off, in either direction, on every
+  leg. The share of a step along it costs `avoidedTrackCostFactor` (profile variable, default 10) times its cost;
+  `avoidedTrackClosed=1` blocks such a step instead. A leg whose search fails is searched again without R2, then
+  without the track, then without the stretch (`searchLeg`). Curvey's app sends none; its bench compares with it
+  (Curvey #466).

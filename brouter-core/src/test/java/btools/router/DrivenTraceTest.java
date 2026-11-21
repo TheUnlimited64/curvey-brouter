@@ -68,6 +68,11 @@ public class DrivenTraceTest {
     String nogos;
     /** Profile variable reversalCostFactor; null = the engine's default. 1 switches R2 off. */
     Double reversalCostFactor;
+    /** Curvey #466: the line a reroute comes back onto ({@code referencetrack}), and {@code referencejoin}. */
+    List<OsmNode> line;
+    boolean join;
+    /** Profile variable referenceJoinReversalCostFactor; null = the engine's default. */
+    Double joinReversalCostFactor;
   }
 
   private RoutingEngine route(double[][] latLon, Request r) {
@@ -83,6 +88,11 @@ public class DrivenTraceTest {
     rctx.keyValues = new HashMap<>();
     if (r.continueStraight) rctx.keyValues.put("continueStraight", "1");
     if (r.reversalCostFactor != null) rctx.keyValues.put("reversalCostFactor", String.valueOf(r.reversalCostFactor));
+    if (r.joinReversalCostFactor != null) {
+      rctx.keyValues.put("referenceJoinReversalCostFactor", String.valueOf(r.joinReversalCostFactor));
+    }
+    rctx.referenceTrackPositions = r.line;
+    rctx.referenceJoin = r.join;
     rctx.drivenTrace = r.drivenTrace;
     rctx.arrivedFrom = r.arrivedFrom;
     if (r.nogos != null) {
@@ -672,6 +682,62 @@ public class DrivenTraceTest {
       if (after < before - 10.) reduced++;
     }
     Assert.assertTrue("premise: some route came back along the trace without R2", reduced > 0);
+  }
+
+  /**
+   * Curvey #466: a reroute that comes back onto the plan ({@code referencejoin}) makes going back along the road just
+   * driven cost {@code referenceJoinReversalCostFactor} instead of {@code reversalCostFactor}: the line's own
+   * surcharge prices every way off it, so a turn back onto the plan behind the rider would otherwise win far more
+   * often than today. The plan here is the way back to where the vehicle came from: with the plain factor the route
+   * rides it back along the trace; with the join factor it goes back less, never more.
+   */
+  @Test
+  public void aJoiningRerouteGoesBackAlongTheTraceLess() {
+    int reduced = 0;
+    for (double[][] pair : PAIRS) {
+      OsmTrack free = free(pair).getFoundTrack();
+      OsmTrack arrival = arrival(pair, free);
+      double[][] behind = {pair[0], originOnFirstStepSide(free)};
+      OsmTrack back = route(behind, plain()).getFoundTrack();
+
+      Request plainFactor = traced(sampled(arrival), ON_ROAD_SIGMA_M, pair[0]);
+      plainFactor.line = positions(back);
+      plainFactor.join = true;
+      plainFactor.joinReversalCostFactor = RoutingContext.DEFAULT_REVERSAL_COST_FACTOR * 1.;
+      Request joinFactor = traced(sampled(arrival), ON_ROAD_SIGMA_M, pair[0]);
+      joinFactor.line = positions(back);
+      joinFactor.join = true;
+      OsmTrack before = route(behind, plainFactor).getFoundTrack();
+      OsmTrack after = route(behind, joinFactor).getFoundTrack();
+      Assert.assertNotNull(before);
+      Assert.assertNotNull(after);
+
+      double backBefore = backwardsAlong(before, positions(arrival));
+      double backAfter = backwardsAlong(after, positions(arrival));
+      Assert.assertTrue("pair " + pair[0][0] + ": the join factor goes back more (" + backAfter + " m) than the plain one ("
+        + backBefore + " m)", backAfter <= backBefore + 1.);
+      if (backAfter < backBefore - 10.) reduced++;
+    }
+    Assert.assertTrue("premise: some reroute rode the plan back along the trace with the plain factor", reduced > 0);
+  }
+
+  /** Without {@code referencejoin} the join factor changes nothing: the same line and trace route as before. */
+  @Test
+  public void theJoinFactorNeedsReferenceJoin() {
+    for (double[][] pair : PAIRS) {
+      OsmTrack free = free(pair).getFoundTrack();
+      OsmTrack arrival = arrival(pair, free);
+      double[][] behind = {pair[0], originOnFirstStepSide(free)};
+      OsmTrack back = route(behind, plain()).getFoundTrack();
+
+      Request defaults = traced(sampled(arrival), ON_ROAD_SIGMA_M, pair[0]);
+      defaults.line = positions(back);
+      Request huge = traced(sampled(arrival), ON_ROAD_SIGMA_M, pair[0]);
+      huge.line = positions(back);
+      huge.joinReversalCostFactor = 1000.;
+
+      assertSameOutcome("pair " + pair[0][0], route(behind, defaults), route(behind, huge));
+    }
   }
 
   /**

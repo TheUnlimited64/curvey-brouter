@@ -202,6 +202,15 @@ final class ReferenceTrack {
   }
 
   /**
+   * Length (m) of the route step {@code from -> to} that runs along the line in either direction (Curvey #466, a
+   * stretch to avoid): {@link #alongM} of the step plus that of the step the other way round. A road crossing the
+   * line, or a turn off it, still counts as off.
+   */
+  double alongEitherWayM(int fromLon, int fromLat, int toLon, int toLat) {
+    return alongM(fromLon, fromLat, toLon, toLat) + alongM(toLon, toLat, fromLon, fromLat);
+  }
+
+  /**
    * Length (m) of the route step that runs along line step {@code i} (from position {@code i - 1} to {@code i}): the
    * part of the route step inside the corridor whose projection falls on the line step.
    */

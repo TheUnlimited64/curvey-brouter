@@ -54,6 +54,17 @@ public class ReferenceTrackTest {
 
   private final ReferenceTrack north = line(0, 0, 0, 500);
 
+  /** Curvey #466: a stretch to avoid counts a step along it either way, and nothing that crosses or leaves it. */
+  @Test
+  public void aStretchToAvoidCountsBothDirectionsButNoCrossing() {
+    double len = length(0, 100, 0, 200);
+
+    Assert.assertEquals(len, north.alongEitherWayM(lon(0), lat(100), lon(0), lat(200)), ROUNDING_M);
+    Assert.assertEquals(len, north.alongEitherWayM(lon(0), lat(200), lon(0), lat(100)), ROUNDING_M);
+    Assert.assertEquals(0., north.alongEitherWayM(lon(-100), lat(250), lon(100), lat(250)), ROUNDING_M);
+    Assert.assertEquals(0., north.alongEitherWayM(lon(0), lat(250), lon(200), lat(250)), ROUNDING_M);
+  }
+
   @Test
   public void aStepOnTheLineInItsDirectionFollowsItAllTheWay() {
     Assert.assertEquals(length(0, 100, 0, 200), along(north, 0, 100, 0, 200), ROUNDING_M);
